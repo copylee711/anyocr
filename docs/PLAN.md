@@ -150,7 +150,18 @@ AnyOCR 是一个本地优先的 OCR 桌面应用。它用 Tauri 2 + Vue 3 重写
 - [x] **M0 脚手架**（2026-11-25）：Cargo workspace（core / engines / pdf / cli + src-tauri）、Tauri 2 + Vue 3 + Naive UI + Pinia + vue-i18n、仿 iOS 冷色调外壳与 Logo/图标、ESLint/Prettier/Vitest、rustfmt/clippy、GitHub Actions。
   - 待验证：真实窗口中的“打开图片 → 识别”点击流程（命令与 CLI 共用同一代码路径，CLI 已实测）；CI 首次运行结果。
 - [x] **M1 核心 + 本地引擎**（2026-11-25）：统一数据模型；tbpu 全部 8 种排版解析的移植与 14 个单测；oar-ocr PP-OCRv6/v5 本地引擎（模型自动下载、SHA-256 校验、CPU/DirectML/CUDA）；PDFium 渲染；`anyocr ocr` / `anyocr bench`。基准见 [BENCHMARKS.md](BENCHMARKS.md)。
-- [ ] M2 PDF 文本层 ← 下一步
+- [x] **M2 PDF 文本层**（2026-11-25）：GlyphLessFont 文字层（自生成 640 字节字体；Identity-H + ToUnicode，含 BMP 以外字符）、lopdf 增量更新（原文件字节原样保留）、加密文档解密重写、skip-text / force / redo、`anyocr pdf … --verify`、`scripts/acceptance.ps1`。端到端坐标测试覆盖 0/90/180/270 旋转、CropBox 偏移、非零原点 MediaBox、倾斜文字。
+  - 发现并修复：空轮廓字形会导致 PDFium（Chrome / Edge）丢弃倾斜行的文字，字形改为不可见的整格矩形轮廓。
+  - 后续：PDF/A 输出、纠偏 / 旋转页检测（文档方向分类模型已可用，待接入）、单层纯文字 PDF（pdfOneLayer）放到 M3 输出格式中实现。
+- [ ] M3 桌面主界面 ← 下一步
+
+### 新增里程碑：Agent 集成（用户 2026-11-25 提出，排在 M3 之后，可按需提前）
+
+| 内容                                                                                                                                                                                                                                   | 验收标准                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `anyocr mcp`：stdio MCP 服务（Rust `rmcp`），工具 `ocr_image`、`ocr_pdf`（页范围，返回带 `<!-- page N -->` 标记的文本 / Markdown）、`make_searchable_pdf`、`search_pdf`（关键词 → 页码与上下文）；大结果分页返回，避免撑爆智能体上下文 | Claude Code 与 Codex 配置后能调用，在《常微分方程》中按关键词定位并读取原文 |
+| `SKILL.md` + Claude Code 插件清单：说明何时使用（扫描件、图片、无文字层 PDF）、推荐流程（先 search 定位页码，再按页取文本）                                                                                                            | 智能体在遇到扫描件时会主动调用                                              |
+| 分发：GitHub Release 提供 exe；发布阶段再做 npm 包装（按平台的预编译二进制，`npx anyocr-mcp` 一键安装）                                                                                                                                | 干净环境一条命令完成安装与配置                                              |
 
 ## 4. 测试与验收
 

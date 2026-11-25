@@ -26,6 +26,8 @@ enum Command {
     Ocr(OcrArgs),
     /// 对 PDF 页面做识别测速（渲染 + OCR），输出每页用时与汇总
     Bench(BenchArgs),
+    /// 为扫描件 PDF 添加不可见文字层，生成可搜索 PDF（类似 ocrmypdf）
+    Pdf(pdf::PdfArgs),
 }
 
 #[derive(Args)]
@@ -49,13 +51,13 @@ struct BenchArgs {
 }
 
 #[derive(Args)]
-struct EngineArgs {
+pub(crate) struct EngineArgs {
     /// 本地模型：pp-ocrv6-tiny / pp-ocrv6-small / pp-ocrv6-medium / pp-ocrv5-mobile / pp-ocrv5-server
     #[arg(long, default_value = "pp-ocrv6-small")]
-    model: LocalModel,
+    pub(crate) model: LocalModel,
     /// 推理设备：auto / cpu / directml[:N] / cuda[:N]
     #[arg(long, default_value = "auto")]
-    device: Device,
+    pub(crate) device: Device,
     /// CPU 线程数
     #[arg(long)]
     threads: Option<usize>,
@@ -68,7 +70,7 @@ struct EngineArgs {
 }
 
 impl EngineArgs {
-    fn build(&self) -> Result<LocalEngine> {
+    pub(crate) fn build(&self) -> Result<LocalEngine> {
         let models_dir = self
             .models_dir
             .clone()
@@ -152,8 +154,11 @@ fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Ocr(a) => run_ocr(a),
         Command::Bench(a) => bench::run(a),
+        Command::Pdf(a) => pdf::run(a),
     }
 }
+
+mod pdf;
 
 mod bench {
     use std::sync::mpsc;

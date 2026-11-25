@@ -25,6 +25,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4.5", features = ["derive"] }
 oar-ocr = { version = "0.11", features = ["auto-download"] }
 pdfium-render = "0.9"
+lopdf = { version = "0.47", default-features = false, features = ["rayon"] }
 unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
 
 [profile.release]

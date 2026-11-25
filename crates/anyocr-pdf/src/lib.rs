@@ -6,6 +6,9 @@
 //! 3. 开发环境下仓库内的 `vendor/pdfium/<平台>/`（由 `scripts/fetch-pdfium.ps1` 下载）；
 //! 4. 系统库。
 
+pub mod pipeline;
+pub mod textlayer;
+
 use std::path::{Path, PathBuf};
 
 use image::RgbImage;
@@ -23,6 +26,10 @@ pub enum PdfError {
     PageOutOfRange(usize),
     #[error("渲染失败：{0}")]
     Render(String),
+    #[error("保存失败：{0}")]
+    Save(String),
+    #[error("已取消")]
+    Cancelled,
 }
 
 impl From<PdfiumError> for PdfError {
@@ -145,16 +152,7 @@ impl PdfTool {
             }
             let page = all.get(i as PdfPageIndex)?;
             let (w, h) = (page.width().value, page.height().value);
-            let mut scale = dpi / 72.0;
-            let short = w.min(h) * scale;
-            if short < min_side as f32 && short > 0.0 {
-                scale = min_side as f32 / w.min(h);
-            }
-            let cfg = PdfRenderConfig::new()
-                .set_target_width((w * scale).round() as i32)
-                .set_maximum_height((h * scale).round() as i32 + 1)
-                .render_form_data(true)
-                .render_annotations(true);
+            let cfg = render_config(&page, dpi, min_side);
             let image = page.render_with_config(&cfg)?.as_image()?.to_rgb8();
             let text_chars = page
                 .text()
@@ -171,6 +169,118 @@ impl PdfTool {
             }
         }
         Ok(())
+    }
+}
+
+/// 渲染配置：按 DPI 缩放，短边不低于 `min_side` 像素。渲染与坐标换算必须使用同一配置。
+pub fn render_config(page: &PdfPage, dpi: f32, min_side: u32) -> PdfRenderConfig {
+    let (w, h) = (page.width().value, page.height().value);
+    let mut scale = dpi / 72.0;
+    let short = w.min(h) * scale;
+    if short < min_side as f32 && short > 0.0 {
+        scale = min_side as f32 / w.min(h);
+    }
+    PdfRenderConfig::new()
+        .set_target_width((w * scale).round() as i32)
+        .set_maximum_height((h * scale).round() as i32 + 1)
+        .render_form_data(true)
+        .render_annotations(true)
+}
+
+/// 页面上一个可提取字符及其外接框（PDF 用户空间）。
+#[derive(Debug, Clone)]
+pub struct PageChar {
+    pub ch: char,
+    /// `[left, bottom, right, top]`
+    pub rect: [f32; 4],
+}
+
+impl PdfTool {
+    /// 用已打开的文档执行操作（测试与校验用）。
+    pub fn with_document<R>(
+        &self,
+        path: &Path,
+        password: Option<&str>,
+        f: impl FnOnce(&PdfDocument) -> R,
+    ) -> Result<R, PdfError> {
+        let doc = self.open(path, password)?;
+        Ok(f(&doc))
+    }
+
+    /// 提取某页（0 起始）全部非空白字符及其位置。
+    pub fn page_chars(
+        &self,
+        path: &Path,
+        password: Option<&str>,
+        index: usize,
+    ) -> Result<Vec<PageChar>, PdfError> {
+        let doc = self.open(path, password)?;
+        let page = doc.pages().get(index as PdfPageIndex)?;
+        let text = page.text()?;
+        let mut out = Vec::new();
+        for c in text.chars().iter() {
+            let Some(ch) = c.unicode_char() else { continue };
+            if ch.is_whitespace() {
+                continue;
+            }
+            if let Ok(r) = c.loose_bounds() {
+                out.push(PageChar {
+                    ch,
+                    rect: [
+                        r.left().value,
+                        r.bottom().value,
+                        r.right().value,
+                        r.top().value,
+                    ],
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// 每页已有可提取文字的非空白字符数（不渲染，速度快）。
+    pub fn page_text_counts(
+        &self,
+        path: &Path,
+        password: Option<&str>,
+    ) -> Result<Vec<usize>, PdfError> {
+        let doc = self.open(path, password)?;
+        Ok(doc
+            .pages()
+            .iter()
+            .map(|p| {
+                p.text()
+                    .map(|t| t.all().chars().filter(|c| !c.is_whitespace()).count())
+                    .unwrap_or(0)
+            })
+            .collect())
+    }
+
+    /// 在某页中搜索文本（PDFium 搜索，与 Chrome / Edge 的 Ctrl+F 同一实现），返回命中次数。
+    pub fn search_count(
+        &self,
+        path: &Path,
+        password: Option<&str>,
+        index: usize,
+        needle: &str,
+    ) -> Result<usize, PdfError> {
+        let doc = self.open(path, password)?;
+        let page = doc.pages().get(index as PdfPageIndex)?;
+        let text = page.text()?;
+        let search = text.search(needle, &PdfSearchOptions::new())?;
+        Ok(search.iter(PdfSearchDirection::SearchForward).count())
+    }
+
+    /// 某页全部文字（用于校验）。
+    pub fn page_text(
+        &self,
+        path: &Path,
+        password: Option<&str>,
+        index: usize,
+    ) -> Result<String, PdfError> {
+        let doc = self.open(path, password)?;
+        let page = doc.pages().get(index as PdfPageIndex)?;
+        Ok(page.text()?.all())
     }
 }
 

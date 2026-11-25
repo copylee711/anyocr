@@ -7,8 +7,13 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+anyocr-core.workspace = true
 image.workspace = true
+lopdf.workspace = true
 # 默认 feature：pdfium_latest（API 8125，兼容更新的 8179 动态库）、image_latest、thread_safe
 pdfium-render.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
