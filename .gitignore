@@ -1,0 +1,37 @@
+# Rust
+/target/
+**/target/
+
+# Node / 前端
+node_modules/
+dist/
+.vite/
+*.local
+
+# Tauri
+src-tauri/gen/schemas/
+src-tauri/binaries/
+
+# 模型与运行时二进制（下载获得，不入库）
+models/
+*.onnx
+pdfium*.dll
+libpdfium*
+
+# 密钥与本地配置
+.env
+.env.*
+*.key
+*api key*.txt
+.claude/settings.local.json
+
+# 验收输出
+acceptance-out/
+*.layered.pdf
+
+# 编辑器 / 系统
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
