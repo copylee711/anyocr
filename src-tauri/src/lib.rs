@@ -1,7 +1,9 @@
 //! AnyOCR 桌面应用壳：窗口、插件、命令转发。业务逻辑都在 `crates/` 中。
 
+mod capture;
 mod commands;
 mod engines;
+mod hotkeys;
 mod jobs;
 mod settings;
 
@@ -66,6 +68,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             // 安装包中 pdfium.dll 位于资源目录
             if std::env::var_os("ANYOCR_PDFIUM_DIR").is_none()
@@ -81,6 +84,17 @@ pub fn run() {
             app.manage(settings::SettingsState::load(config.join("settings.json")));
             app.manage(commands::PdfState::default());
             app.manage(Arc::new(jobs::Jobs::default()));
+            app.manage(capture::CaptureState::default());
+            // 注册已保存的全局快捷键
+            let hk: hotkeys::Hotkeys = app
+                .state::<settings::SettingsState>()
+                .get()
+                .get("hotkeys")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default();
+            for e in hotkeys::apply(app.handle(), &hk) {
+                tracing::warn!("快捷键 {} 注册失败：{}", e.name, e.error);
+            }
             setup_tray(app)?;
             Ok(())
         })
@@ -93,6 +107,16 @@ pub fn run() {
             commands::doc_start,
             commands::batch_start,
             commands::job_cancel,
+            commands::capture_start,
+            commands::overlay_ready,
+            commands::overlay_pixels,
+            commands::capture_finish,
+            commands::capture_cancel,
+            commands::capture_repeat,
+            commands::clipboard_recognize,
+            commands::apply_hotkeys,
+            commands::qr_read_file,
+            commands::qr_write,
         ])
         .run(tauri::generate_context!())
         .expect("启动 AnyOCR 失败");

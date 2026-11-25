@@ -1,0 +1,14 @@
+[package]
+name = "anyocr-qrcode"
+description = "AnyOCR 二维码 / 条形码读写（rxing）与图像预处理"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+image.workspace = true
+imageproc = { version = "0.27", default-features = false }
+rxing = { version = "0.9", default-features = false, features = ["encoding_rs", "client_support", "decoders", "encoders", "full_barcode_format_support", "multi_barcode_readers"] }
+serde.workspace = true
+thiserror.workspace = true

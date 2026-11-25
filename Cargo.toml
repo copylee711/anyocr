@@ -15,6 +15,7 @@ anyocr-core = { path = "crates/anyocr-core" }
 anyocr-engines = { path = "crates/anyocr-engines" }
 anyocr-pdf = { path = "crates/anyocr-pdf" }
 anyocr-output = { path = "crates/anyocr-output" }
+anyocr-qrcode = { path = "crates/anyocr-qrcode" }
 
 anyhow = "1"
 thiserror = "2"

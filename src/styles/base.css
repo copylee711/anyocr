@@ -104,3 +104,9 @@ body {
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
 }
+
+/* 截图遮罩窗口：去掉页面背景，避免加载前闪白 */
+html.overlay-mode,
+html.overlay-mode body {
+  background: #000;
+}

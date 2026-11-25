@@ -9,6 +9,7 @@ import { useI18n } from "vue-i18n";
 import { appInfo, type AppInfo } from "../api/app";
 import Group from "../components/ui/Group.vue";
 import Row from "../components/ui/Row.vue";
+import HotkeyInput from "../components/ui/HotkeyInput.vue";
 import Segmented from "../components/ui/Segmented.vue";
 import { useSettings } from "../stores/settings";
 
@@ -63,6 +64,28 @@ const models = ["pp-ocrv6-tiny", "pp-ocrv6-small", "pp-ocrv6-medium", "pp-ocrv5-
         </Row>
         <Row :label="t('settings.textline')" :hint="t('settings.textlineHint')">
           <NSwitch v-model:value="settings.s.engine.textlineOrientation" />
+        </Row>
+      </Group>
+
+      <Group :title="t('settings.hotkeys')" :footer="t('settings.hotkeysHint')">
+        <Row
+          v-for="k in ['screenshot', 'paste', 'reScreenshot', 'qrScreenshot'] as const"
+          :key="k"
+          :label="t(`hotkey.names.${k}`)"
+        >
+          <HotkeyInput v-model="settings.s.hotkeys[k]" />
+        </Row>
+      </Group>
+
+      <Group :title="t('settings.screenshot')">
+        <Row :label="t('settings.copyResult')">
+          <NSwitch v-model:value="settings.s.screenshot.copy" />
+        </Row>
+        <Row :label="t('settings.popMain')">
+          <NSwitch v-model:value="settings.s.screenshot.popMainWindow" />
+        </Row>
+        <Row :label="t('settings.hideWindow')" :hint="t('settings.hideWindowHint')">
+          <NSwitch v-model:value="settings.s.screenshot.hideWindow" />
         </Row>
       </Group>
 

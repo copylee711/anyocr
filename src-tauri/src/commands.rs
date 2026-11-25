@@ -154,3 +154,102 @@ pub fn batch_start(app: AppHandle, jobs_state: State<'_, Arc<Jobs>>, args: Batch
 pub fn job_cancel(jobs_state: State<'_, Arc<Jobs>>, job: u64) -> bool {
     jobs_state.cancel(job)
 }
+
+// ===================== 截图 / 剪贴板 / 二维码 =====================
+
+use crate::capture::{self, Mode, Selection};
+use crate::hotkeys::{self, HotkeyError, Hotkeys};
+
+#[tauri::command]
+pub async fn capture_start(app: AppHandle, mode: Mode) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || capture::start(&app, mode))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// 遮罩页面加载完截图后调用，再显示窗口，避免白屏闪烁。
+#[tauri::command]
+pub fn overlay_ready(window: tauri::WebviewWindow) {
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
+#[tauri::command]
+pub async fn capture_finish(app: AppHandle, selection: Selection) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || capture::finish(&app, selection))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn capture_cancel(app: AppHandle) {
+    let _ = tauri::async_runtime::spawn_blocking(move || capture::cancel(&app)).await;
+}
+
+#[tauri::command]
+pub async fn capture_repeat(app: AppHandle, mode: Mode) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || capture::repeat_last(&app, mode))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn clipboard_recognize(app: AppHandle, mode: Mode) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || capture::from_clipboard(&app, mode))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn apply_hotkeys(app: AppHandle, hotkeys: Hotkeys) -> Vec<HotkeyError> {
+    hotkeys::apply(&app, &hotkeys)
+}
+
+#[tauri::command]
+pub async fn qr_read_file(
+    path: String,
+    preprocess: anyocr_qrcode::Preprocess,
+) -> Result<Vec<anyocr_qrcode::Code>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let img = image::open(&path)
+            .map_err(|e| format!("无法打开图片：{e}"))?
+            .to_rgb8();
+        anyocr_qrcode::read(&img, &preprocess).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 生成码图并保存到 `path`（为空时存到缓存目录），返回文件路径。
+#[tauri::command]
+pub async fn qr_write(
+    app: AppHandle,
+    text: String,
+    options: anyocr_qrcode::WriteOptions,
+    path: Option<String>,
+) -> Result<String, String> {
+    let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let img = anyocr_qrcode::write(&text, &options).map_err(|e| e.to_string())?;
+        let out = match path {
+            Some(p) if !p.is_empty() => std::path::PathBuf::from(p),
+            _ => {
+                std::fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
+                cache.join(format!(
+                    "code-{}.png",
+                    std::process::id() as u128 + text.len() as u128
+                ))
+            }
+        };
+        img.save(&out).map_err(|e| format!("保存失败：{e}"))?;
+        Ok(out.display().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 遮罩页取截图原始像素（二进制响应）。
+#[tauri::command]
+pub fn overlay_pixels(app: AppHandle, monitor: usize) -> Result<tauri::ipc::Response, String> {
+    capture::overlay_pixels(&app, monitor).map(tauri::ipc::Response::new)
+}

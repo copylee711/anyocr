@@ -28,6 +28,7 @@ const routes: RouteRecordRaw[] = [
   { path: "/qrcode", component: () => import("./pages/QrCode.vue") },
   { path: "/settings", component: () => import("./pages/Settings.vue") },
   { path: "/about", component: () => import("./pages/About.vue") },
+  { path: "/overlay", component: () => import("./pages/Overlay.vue") },
 ];
 
 export const router = createRouter({ history: createWebHashHistory(), routes });

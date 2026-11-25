@@ -13,7 +13,12 @@ export interface Settings {
     textlineOrientation: boolean;
   };
   ui: { theme: "system" | "light" | "dark"; language: "auto" | "zh-CN" | "en" };
-  screenshot: { parser: ParserKey };
+  screenshot: { parser: ParserKey; copy: boolean; popMainWindow: boolean; hideWindow: boolean };
+  hotkeys: { screenshot: string; paste: string; reScreenshot: string; qrScreenshot: string };
+  qrcode: {
+    preprocess: { medianFilterSize: number; sharpnessFactor: number; contrastFactor: number; threshold: number };
+    write: { format: string; width: number; height: number; quietZone: number; ecLevel: string };
+  };
   doc: {
     mode: LayerMode;
     pages: string;
@@ -39,7 +44,12 @@ export function defaultSettings(): Settings {
   return {
     engine: { model: "pp-ocrv6-small", device: "auto", workers: 0, textlineOrientation: false },
     ui: { theme: "system", language: "auto" },
-    screenshot: { parser: "multi_para" },
+    screenshot: { parser: "multi_para", copy: true, popMainWindow: true, hideWindow: true },
+    hotkeys: { screenshot: "F4", paste: "", reScreenshot: "", qrScreenshot: "" },
+    qrcode: {
+      preprocess: { medianFilterSize: 0, sharpnessFactor: 1, contrastFactor: 1, threshold: 0 },
+      write: { format: "QR_CODE", width: 256, height: 256, quietZone: 2, ecLevel: "M" },
+    },
     doc: {
       mode: "skip-text",
       pages: "",

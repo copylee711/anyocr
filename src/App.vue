@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watchEffect } from "vue";
+import { computed, watchEffect } from "vue";
 import { darkTheme, NConfigProvider, NMessageProvider, useOsTheme } from "naive-ui";
 import { useI18n } from "vue-i18n";
 
-import { onJobEvent } from "./api/app";
 import AppIcon from "./components/AppIcon.vue";
 import ContextMenu from "./components/ContextMenu.vue";
+import GlobalListeners from "./components/GlobalListeners.vue";
 import TitleBar from "./components/TitleBar.vue";
 import { bottomNavItems, navItems } from "./router";
 import { useSettings } from "./stores/settings";
-import { useTasks } from "./stores/tasks";
 import { darkOverrides, lightOverrides } from "./theme";
 
 const { t, locale } = useI18n();
 const osTheme = useOsTheme();
 const settings = useSettings();
-const tasks = useTasks();
+// 截图遮罩窗口只渲染遮罩页，不加载主界面
+const isOverlay = window.location.hash.startsWith("#/overlay");
 
 const isDark = computed(() => {
   const pref = settings.s.ui.theme;
@@ -28,23 +28,18 @@ watchEffect(() => {
   const lang = settings.s.ui.language;
   locale.value = lang === "auto" ? (navigator.language.startsWith("zh") ? "zh-CN" : "en") : lang;
 });
-
-// 全局监听任务事件，切换页面时进度不丢失
-let unlisten: (() => void) | undefined;
-onMounted(async () => {
-  await settings.load();
-  unlisten = await onJobEvent(tasks.handle);
-});
-onBeforeUnmount(() => unlisten?.());
 </script>
 
 <template>
+  <RouterView v-if="isOverlay" />
   <NConfigProvider
+    v-else
     style="height: 100%"
     :theme="isDark ? darkTheme : null"
     :theme-overrides="isDark ? darkOverrides : lightOverrides"
   >
     <NMessageProvider>
+      <GlobalListeners />
       <div class="shell">
         <!-- iPadOS 风格侧栏：毛玻璃材质、图标+文字、胶囊形选中态 -->
         <aside class="sidebar" data-tauri-drag-region>
