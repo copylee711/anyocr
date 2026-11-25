@@ -35,3 +35,6 @@ acceptance-out/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 第三方二进制（scripts/fetch-pdfium.ps1 下载）
+vendor/

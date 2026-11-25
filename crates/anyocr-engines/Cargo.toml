@@ -1,0 +1,22 @@
+[package]
+name = "anyocr-engines"
+description = "AnyOCR 引擎实现：本地 PP-OCR（oar-ocr/ONNX Runtime）、在线服务、视觉大模型"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = ["directml"]
+# Windows 上任意 GPU 可用的 DirectML 执行后端
+directml = ["oar-ocr/directml"]
+# NVIDIA CUDA 执行后端（需要本机 CUDA/cuDNN 运行库）
+cuda = ["oar-ocr/cuda"]
+
+[dependencies]
+anyocr-core.workspace = true
+image.workspace = true
+oar-ocr.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

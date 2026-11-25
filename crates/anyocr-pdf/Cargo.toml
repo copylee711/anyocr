@@ -1,0 +1,14 @@
+[package]
+name = "anyocr-pdf"
+description = "AnyOCR PDF：页面渲染、文字读取，以及（M2）不可见文字层写入"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+image.workspace = true
+# 默认 feature：pdfium_latest（API 8125，兼容更新的 8179 动态库）、image_latest、thread_safe
+pdfium-render.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

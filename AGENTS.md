@@ -32,16 +32,23 @@ tests/fixtures/     可公开的小样张
 ## 常用命令
 
 ```powershell
-pnpm install                 # 安装前端依赖
-pnpm tauri dev               # 启动桌面开发模式
-pnpm tauri build             # 打包
-cargo test --workspace       # Rust 测试
+pwsh scripts/fetch-pdfium.ps1   # 首次：下载 PDFium 到 vendor/pdfium/（固定 chromium/8179）
+pnpm install                    # 安装前端依赖
+pnpm tauri dev                  # 启动桌面开发模式（Rust 包名 anyocr-desktop）
+pnpm tauri build                # 打包 NSIS 安装包
+cargo test --workspace          # Rust 测试
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all
-pnpm lint; pnpm typecheck; pnpm test
+pnpm lint; pnpm typecheck; pnpm test; pnpm format
+
+# CLI（crates/anyocr-cli，二进制名 anyocr）
+cargo run --release -p anyocr-cli -- ocr a.png --parser multi_para --format json
+cargo run --release -p anyocr-cli -- bench book.pdf --pages 1-20 --device directml
 ```
 
-（脚手架完成前，部分命令还不存在；落地后以 `package.json` / `Cargo.toml` 为准，并同步更新本节。）
+- 模型首次使用时自动下载到 `%APPDATA%/anyocr/models`（桌面端为 Tauri 的 app_data_dir/models）。
+- `Cargo.toml` 中设置了 `[profile.dev.package."*"] opt-level = 3`，依赖在 debug 下也会优化，否则推理慢到无法使用。
+- 前端依赖是较新的大版本（pinia 4、vue-router 5、eslint 10、vite 8）。写代码前用 Context7 查当前 API。
 
 ## 架构约束
 
@@ -54,7 +61,7 @@ pnpm lint; pnpm typecheck; pnpm test
 
 ## 编码规范
 
-- Rust：edition 2021，`thiserror` 定义库错误，`anyhow` 只用于二进制入口；禁止在库代码里 `unwrap()`/`expect()` 处理可恢复错误；公共 API 写文档注释。
+- Rust：edition 2024，`thiserror` 定义库错误，`anyhow` 只用于二进制入口；禁止在库代码里 `unwrap()`/`expect()` 处理可恢复错误；公共 API 写文档注释。
 - TypeScript：`strict`；Vue 使用 `<script setup lang="ts">` + Composition API；组件 PascalCase；与 Rust 交互的类型集中定义在 `src/api/`。
 - 界面文字全部走 i18n，不硬编码。中文为源语言（`zh-CN`）。
 - 从 Umi-OCR 移植的算法，在文件头注明原始文件路径和 MIT 来源。

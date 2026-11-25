@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- AnyOCR 品牌标识：A 字母与扫描框结合 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2C2C2E"/>
+      <stop offset="1" stop-color="#1C1C1E"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="58" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 扫描框四角 -->
+    <path d="M232 380 V292 a60 60 0 0 1 60 -60 H380"/>
+    <path d="M644 232 H732 a60 60 0 0 1 60 60 V380"/>
+    <path d="M792 644 V732 a60 60 0 0 1 -60 60 H644"/>
+    <path d="M380 792 H292 a60 60 0 0 1 -60 -60 V644"/>
+  </g>
+  <!-- 字母 A -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M378 720 L512 318 L646 720"/>
+    <path d="M425 580 H599"/>
+  </g>
+  <!-- 扫描线 -->
+  <path d="M196 512 H828" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="12" stroke-linecap="round"/>
+</svg>

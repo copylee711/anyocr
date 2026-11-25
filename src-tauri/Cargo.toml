@@ -1,0 +1,27 @@
+[package]
+name = "anyocr-desktop"
+description = "AnyOCR 桌面应用"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# `_lib` 后缀用于避免 Windows 上 lib 与 bin 同名冲突，见 https://github.com/rust-lang/cargo/issues/8519
+name = "anyocr_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyocr-core.workspace = true
+anyocr-engines.workspace = true
+image.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
