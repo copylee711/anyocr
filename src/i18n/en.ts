@@ -36,6 +36,8 @@ const en: typeof zhCN = {
     desc: "AnyOCR rewrites Umi-OCR with Tauri + Vue, adding online engines, vision-LLM review and PDF text layers.",
     credits: "Credits",
   },
+  window: { minimize: "Minimize", maximize: "Maximize", restore: "Restore", close: "Close" },
+  menu: { cut: "Cut", copy: "Copy", paste: "Paste", selectAll: "Select all" },
   parser: {
     multi_para: "Multi-column · paragraphs",
     multi_line: "Multi-column · line breaks",

@@ -34,6 +34,8 @@ export default {
     desc: "AnyOCR 使用 Tauri + Vue 重写 Umi-OCR，并加入在线引擎、视觉大模型复核与 PDF 文本层。",
     credits: "致谢",
   },
+  window: { minimize: "最小化", maximize: "最大化", restore: "向下还原", close: "关闭" },
+  menu: { cut: "剪切", copy: "复制", paste: "粘贴", selectAll: "全选" },
   parser: {
     multi_para: "多栏 · 自然段",
     multi_line: "多栏 · 总是换行",

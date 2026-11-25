@@ -4,6 +4,8 @@ import { darkTheme, NConfigProvider, NMessageProvider, useOsTheme } from "naive-
 import { useI18n } from "vue-i18n";
 
 import AppIcon from "./components/AppIcon.vue";
+import ContextMenu from "./components/ContextMenu.vue";
+import TitleBar from "./components/TitleBar.vue";
 import { bottomNavItems, navItems } from "./router";
 import { darkOverrides, lightOverrides } from "./theme";
 
@@ -21,8 +23,8 @@ const isDark = computed(() => osTheme.value === "dark");
     <NMessageProvider>
       <div class="shell">
         <!-- iPadOS 风格侧栏：毛玻璃材质、图标+文字、胶囊形选中态 -->
-        <aside class="sidebar">
-          <div class="brand">
+        <aside class="sidebar" data-tauri-drag-region>
+          <div class="brand" data-tauri-drag-region>
             <img src="/logo.svg" alt="" class="logo" />
             <div class="brand-text">
               <strong>{{ t("app.name") }}</strong>
@@ -43,12 +45,16 @@ const isDark = computed(() => osTheme.value === "dark");
           </nav>
         </aside>
         <main class="main">
-          <RouterView v-slot="{ Component }">
-            <Transition name="fade" mode="out-in">
-              <component :is="Component" />
-            </Transition>
-          </RouterView>
+          <TitleBar />
+          <div class="content">
+            <RouterView v-slot="{ Component }">
+              <Transition name="fade" mode="out-in">
+                <component :is="Component" />
+              </Transition>
+            </RouterView>
+          </div>
         </main>
+        <ContextMenu />
       </div>
     </NMessageProvider>
   </NConfigProvider>
@@ -65,7 +71,7 @@ const isDark = computed(() => osTheme.value === "dark");
   flex: none;
   display: flex;
   flex-direction: column;
-  padding: 16px 12px 14px;
+  padding: 22px 12px 14px;
   gap: 14px;
   background: var(--c-sidebar);
   border-right: 0.5px solid var(--c-border);
@@ -144,6 +150,12 @@ const isDark = computed(() => osTheme.value === "dark");
 .main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.content {
+  flex: 1;
+  min-height: 0;
 }
 
 .fade-enter-active,
