@@ -55,6 +55,8 @@ pub struct SearchableOptions {
     pub parser: Parser,
     /// 页面已有不少于该数量的非空白字符时视为“已有文字”。
     pub text_threshold: usize,
+    /// 是否写出带文字层的 PDF；为假时只识别（结果通过 [`Progress::Recognized`] 取得）。
+    pub write_pdf: bool,
 }
 
 impl Default for SearchableOptions {
@@ -67,6 +69,7 @@ impl Default for SearchableOptions {
             password: None,
             parser: Parser::MultiPara,
             text_threshold: 10,
+            write_pdf: true,
         }
     }
 }
@@ -135,6 +138,11 @@ pub enum Progress {
     Planned { total: usize, to_ocr: usize },
     /// 一页处理完成（含跳过与失败）。
     Page(PageReport),
+    /// 一页的识别结果（按页序在保存前依次给出），供导出 txt / md 等格式。
+    Recognized {
+        index: usize,
+        result: anyocr_core::PageResult,
+    },
     /// 正在保存。
     Saving,
 }
@@ -258,17 +266,25 @@ pub fn make_searchable(
         results.sort_by_key(|r| r.0);
         for (i, r) in results {
             let rep = page_report(i, &r);
-            if let Ok(page) = &r {
+            if let Ok(page) = r {
                 ocr_ms += page.elapsed_ms;
-                writer.add_page(i, page)?;
+                if opts.write_pdf {
+                    writer.add_page(i, &page)?;
+                }
+                on_progress(Progress::Recognized {
+                    index: i,
+                    result: page,
+                });
             }
             reports.push(rep);
         }
     }
 
     reports.sort_by_key(|r| r.page);
-    on_progress(Progress::Saving);
-    writer.save(output)?;
+    if opts.write_pdf {
+        on_progress(Progress::Saving);
+        writer.save(output)?;
+    }
     let size = |p: &Path| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
     Ok(Report {
         total_pages: count,

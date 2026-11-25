@@ -1,0 +1,14 @@
+[package]
+name = "anyocr-output"
+description = "AnyOCR 输出格式：txt / 纯文本 / 单独 txt / md / csv / jsonl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyocr-core.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

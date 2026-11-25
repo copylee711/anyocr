@@ -131,6 +131,7 @@ pub fn run(args: PdfArgs) -> Result<()> {
                 eprintln!("[{finished:>4}/{total}] 第 {:>4} 页  {msg}", r.page);
             }
             Progress::Saving => eprintln!("正在保存 {}", output.display()),
+            Progress::Recognized { .. } => {}
         },
     )
     .context("处理失败")?;

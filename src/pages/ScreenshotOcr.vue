@@ -7,6 +7,7 @@ import { useI18n } from "vue-i18n";
 
 import { ocrImageFile, type PageResult, pageText, PARSERS, type ParserKey } from "../api/ocr";
 import AppIcon from "../components/AppIcon.vue";
+import { useSettings } from "../stores/settings";
 
 const { t } = useI18n();
 const message = useMessage();
@@ -14,7 +15,11 @@ const message = useMessage();
 const imagePath = ref<string | null>(null);
 const result = ref<PageResult | null>(null);
 const busy = ref(false);
-const parser = ref<ParserKey>("multi_para");
+const settings = useSettings();
+const parser = computed<ParserKey>({
+  get: () => settings.s.screenshot.parser,
+  set: (v) => (settings.s.screenshot.parser = v),
+});
 const hovered = ref<number | null>(null);
 
 const parserOptions = computed(() => PARSERS.map((p) => ({ label: t(`parser.${p}`), value: p })));

@@ -22,22 +22,21 @@
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --c-primary: #0a84ff;
-    --c-primary-soft: rgba(10, 132, 255, 0.18);
-    --c-accent: #64d2ff;
-    --c-bg: #000000;
-    --c-surface: #1c1c1e;
-    --c-surface-2: #2c2c2e;
-    --c-sidebar: rgba(28, 28, 30, 0.78);
-    --c-border: rgba(84, 84, 88, 0.6);
-    --c-text: #ffffff;
-    --c-text-2: rgba(235, 235, 245, 0.6);
-    --c-text-3: rgba(235, 235, 245, 0.3);
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 28px -16px rgba(0, 0, 0, 0.7);
-    color-scheme: dark;
-  }
+/* 暗色：由 App 根据设置（跟随系统 / 浅色 / 深色）设置 data-theme */
+:root[data-theme="dark"] {
+  --c-primary: #0a84ff;
+  --c-primary-soft: rgba(10, 132, 255, 0.18);
+  --c-accent: #64d2ff;
+  --c-bg: #000000;
+  --c-surface: #1c1c1e;
+  --c-surface-2: #2c2c2e;
+  --c-sidebar: rgba(28, 28, 30, 0.78);
+  --c-border: rgba(84, 84, 88, 0.6);
+  --c-text: #ffffff;
+  --c-text-2: rgba(235, 235, 245, 0.6);
+  --c-text-3: rgba(235, 235, 245, 0.3);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 28px -16px rgba(0, 0, 0, 0.7);
+  color-scheme: dark;
 }
 
 *,
@@ -54,6 +53,7 @@ body,
 }
 
 body {
+  overflow: hidden;
   font-family: var(--font-ui);
   font-size: 14px;
   color: var(--c-text);

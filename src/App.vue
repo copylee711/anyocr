@@ -1,17 +1,41 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted, watchEffect } from "vue";
 import { darkTheme, NConfigProvider, NMessageProvider, useOsTheme } from "naive-ui";
 import { useI18n } from "vue-i18n";
 
+import { onJobEvent } from "./api/app";
 import AppIcon from "./components/AppIcon.vue";
 import ContextMenu from "./components/ContextMenu.vue";
 import TitleBar from "./components/TitleBar.vue";
 import { bottomNavItems, navItems } from "./router";
+import { useSettings } from "./stores/settings";
+import { useTasks } from "./stores/tasks";
 import { darkOverrides, lightOverrides } from "./theme";
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const osTheme = useOsTheme();
-const isDark = computed(() => osTheme.value === "dark");
+const settings = useSettings();
+const tasks = useTasks();
+
+const isDark = computed(() => {
+  const pref = settings.s.ui.theme;
+  return pref === "dark" || (pref === "system" && osTheme.value === "dark");
+});
+
+// 主题与语言跟随设置
+watchEffect(() => {
+  document.documentElement.dataset.theme = isDark.value ? "dark" : "light";
+  const lang = settings.s.ui.language;
+  locale.value = lang === "auto" ? (navigator.language.startsWith("zh") ? "zh-CN" : "en") : lang;
+});
+
+// 全局监听任务事件，切换页面时进度不丢失
+let unlisten: (() => void) | undefined;
+onMounted(async () => {
+  await settings.load();
+  unlisten = await onJobEvent(tasks.handle);
+});
+onBeforeUnmount(() => unlisten?.());
 </script>
 
 <template>
@@ -156,6 +180,9 @@ const isDark = computed(() => osTheme.value === "dark");
 .content {
   flex: 1;
   min-height: 0;
+  /* 切换动画的位移不能撑出外层滚动条，滚动只发生在页面内部 */
+  overflow: hidden;
+  position: relative;
 }
 
 .fade-enter-active,
@@ -166,7 +193,7 @@ const isDark = computed(() => osTheme.value === "dark");
 }
 .fade-enter-from {
   opacity: 0;
-  transform: translateY(6px);
+  transform: translateY(4px);
 }
 .fade-leave-to {
   opacity: 0;
