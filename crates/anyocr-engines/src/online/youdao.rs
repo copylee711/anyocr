@@ -97,7 +97,7 @@ pub(crate) fn parse(v: &Value, scale: f32) -> Vec<TextBlock> {
                 .split(',')
                 .filter_map(|s| s.trim().parse().ok())
                 .collect();
-            let pts: Vec<[f32; 2]> = nums.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
+            let pts: Vec<[f32; 2]> = nums.as_chunks::<2>().0.to_vec();
             if let Some(q) = quad_from_points(&pts, scale) {
                 blocks.push(TextBlock::new(text, q, 1.0));
             }

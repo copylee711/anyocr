@@ -89,4 +89,5 @@ pwsh scripts/pack-npm.ps1          # 组装 npm 包（anyocr + @copylee/anyocr-w
 - 直接在 `main` 上小步提交并推送；较大的实验性改动开分支。
 - 提交信息用中文，带 Conventional Commits 前缀：`feat:`、`fix:`、`docs:`、`refactor:`、`test:`、`chore:`、`ci:`。
 - 提交作者只署仓库所有者本人。不要添加 `Co-Authored-By`，也不要在提交信息或 PR 中写入任何 AI 工具署名。
-- 提交前确保 `cargo fmt`、`clippy`、前端 lint 和类型检查通过。
+- 提交前确保 `cargo fmt`、`clippy`、前端 lint 和类型检查通过。CI 使用最新 stable Rust，新版 clippy 会新增规则，本机要定期执行 `rustup update stable`。
+- 推送后用 `gh run list` 确认 CI 结果。CI 不是绿的，不要打发布标签。
