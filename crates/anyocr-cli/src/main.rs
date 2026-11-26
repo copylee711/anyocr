@@ -34,6 +34,8 @@ enum Command {
     Md(MdArgs),
     /// 列出可用的在线引擎及其密钥环境变量
     Engines,
+    /// 以 stdio MCP 服务运行，供 Claude Code、Codex 等智能体调用（识别图片、读取与搜索扫描件 PDF）
+    Mcp(McpArgs),
     /// 为扫描件 PDF 添加不可见文字层，生成可搜索 PDF（类似 ocrmypdf）
     Pdf(pdf::PdfArgs),
 }
@@ -56,6 +58,12 @@ struct BenchArgs {
     /// 将每页识别文本写入该目录（page-0001.txt …）
     #[arg(long)]
     dump: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct McpArgs {
+    #[command(flatten)]
+    engine: EngineArgs,
 }
 
 #[derive(Args)]
@@ -373,6 +381,7 @@ fn main() -> Result<()> {
         Command::Ocr(a) => run_ocr(a),
         Command::Bench(a) => bench::run(a),
         Command::Md(a) => run_md(a),
+        Command::Mcp(a) => mcp::run(a.engine),
         Command::Engines => {
             run_engines();
             Ok(())
@@ -381,6 +390,8 @@ fn main() -> Result<()> {
     }
 }
 
+mod index;
+mod mcp;
 mod pdf;
 
 mod bench {

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "anyocr": {
+      "command": "anyocr",
+      "args": ["mcp"]
+    }
+  }
+}

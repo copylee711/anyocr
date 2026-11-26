@@ -6,6 +6,12 @@
 - **视觉大模型**：可以直接用来识别，也可以与 OCR 引擎并行运行，二次复核并修正识别结果，尽量不增加总用时。
 - **扫描件 PDF 加文本层**：参考 OCRmyPDF，为扫描版 PDF 添加不可见文字层，使其支持搜索和复制，原图像不重新压缩。
 
+- **给 AI 智能体用**：`anyocr mcp` 提供 MCP 服务，并附带 Claude Code 插件与 Skill。Claude Code、Codex 等可以直接读取图片和扫描件，在整本扫描书里按关键词定位页码。安装与配置见 [docs/AGENTS-INTEGRATION.md](docs/AGENTS-INTEGRATION.md)：
+
+  ```text
+  /plugin install anyocr --marketplace copylee711/anyocr
+  ```
+
 > 开发中。计划见 [docs/PLAN.md](docs/PLAN.md)，调研见 [docs/RESEARCH.md](docs/RESEARCH.md)。
 
 ## 致谢

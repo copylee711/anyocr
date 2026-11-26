@@ -213,7 +213,23 @@ AnyOCR 是一个本地优先的 OCR 桌面应用。它用 Tauri 2 + Vue 3 重写
     - 被规则拦下的错误：“10⁻²mm→10-3mm”、下标 xᵢ 被猜成 x1 / x10、表格行号错位。规则偏保守，部分正确的公式修正（如 Dm2-Dn2）也被拒绝。
     - 模式 A：2 页用时 9.6 s（逐页串行），适合少量高要求页面。
   - 未做：截图结果的差异逐字高亮（目前按行高亮）；只送低置信度行裁剪图的复核方式。
-- [ ] Agent 集成（MCP / Skill）或 M7 ← 下一步
+- [x] **Agent 集成**（2026-11-26，用户尚未在自己的 Claude Code / Codex 中实测）：
+  - `anyocr mcp`：基于 rmcp 3 的 stdio MCP 服务，提供 5 个工具：
+    - `ocr_image`：识别图片。
+    - `ocr_pdf`：按页读取。有文字层的页直接提取，扫描页现场 OCR；单次最多 30 页，并按 `max_chars` 在页边界截断。
+    - `search_pdf`：搜索时忽略空白和大小写，并说明哪些扫描页尚未识别。
+    - `make_searchable_pdf`：后台任务，立即返回任务编号。
+    - `job_status`：查询进度，给出预计剩余时间。
+  - 扫描页文字缓存在 `%LOCALAPPDATA%\anyocr\pages\`，以路径、大小、修改时间为键；输出的 `.ocr.pdf` 也记一份。
+  - `integrations/claude-plugin`：Claude Code 插件，含 `.mcp.json`、`skills/anyocr/SKILL.md`（何时使用，以及“先搜索定位、再按页读取”的流程）和图标。仓库根目录的 `.claude-plugin/marketplace.json` 让仓库本身可以作为插件市场添加。`claude plugin validate` 通过。
+  - 接入文档：`docs/AGENTS-INTEGRATION.md`，覆盖 Claude Code、Codex 和其他 MCP 客户端。
+  - 验收（用最小 MCP 客户端走 JSON-RPC stdio 完整流程，《常微分方程》264 页扫描件）：
+    1. 首次 `search_pdf` 正确提示“264 页尚未识别”。
+    2. `make_searchable_pdf` 在后台用 358 s 识别完全书，失败 0 页。
+    3. 再搜“朗斯基行列式”，0.1 s 命中 17 处，首处在第 86 页。
+    4. `ocr_pdf` 读取第 86 页，原文正确。再次读取命中缓存，用时 0.0 s。
+  - 待做：发布阶段做 npm 包装（`npx anyocr-mcp`，按平台提供预编译二进制并带上 pdfium.dll）；在用户真实的 Claude Code / Codex 中试用。
+- [ ] M7 ← 下一步
 
 ### 新增里程碑：Agent 集成（用户 2026-11-25 提出，排在 M3 之后，可按需提前）
 

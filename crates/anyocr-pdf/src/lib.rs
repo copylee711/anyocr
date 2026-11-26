@@ -256,6 +256,16 @@ impl PdfTool {
             .collect())
     }
 
+    /// 每页已有的文字（只打开一次文档）。
+    pub fn pages_text(&self, path: &Path, password: Option<&str>) -> Result<Vec<String>, PdfError> {
+        let doc = self.open(path, password)?;
+        Ok(doc
+            .pages()
+            .iter()
+            .map(|p| p.text().map(|t| t.all()).unwrap_or_default())
+            .collect())
+    }
+
     /// 在某页中搜索文本（PDFium 搜索，与 Chrome / Edge 的 Ctrl+F 同一实现），返回命中次数。
     pub fn search_count(
         &self,
