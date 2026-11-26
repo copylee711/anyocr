@@ -1,0 +1,34 @@
+{
+  "name": "anyocr",
+  "version": "0.1.0",
+  "description": "本地 OCR 命令行与 MCP 服务：识别图片、读取与搜索扫描件 PDF、为扫描件添加可搜索文字层。`npx -y anyocr mcp` 即可接入 Claude Code、Codex 等智能体。",
+  "keywords": [
+    "ocr",
+    "pdf",
+    "scan",
+    "mcp",
+    "searchable-pdf",
+    "paddleocr",
+    "claude",
+    "codex"
+  ],
+  "homepage": "https://github.com/copylee711/anyocr",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/copylee711/anyocr.git"
+  },
+  "license": "MIT",
+  "bin": {
+    "anyocr": "bin/anyocr.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "@copylee/anyocr-win32-x64": "0.1.0"
+  }
+}

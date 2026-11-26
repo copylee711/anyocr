@@ -4,7 +4,14 @@
 
 ## 1. 安装命令行
 
-暂未发布安装包时，从源码安装（需要 Rust 1.95+）：
+最简单的方式是用 npm（目前提供 Windows x64 预编译版本，自带 PDFium）：
+
+```powershell
+npx -y anyocr --help          # 不安装，直接运行
+npm i -g anyocr               # 或全局安装
+```
+
+也可以从 GitHub Release 下载 `anyocr-cli-<版本>-win-x64.zip`，解压后直接运行。其他平台从源码安装（需要 Rust 1.95+）：
 
 ```powershell
 git clone https://github.com/copylee711/anyocr; cd anyocr
@@ -36,7 +43,8 @@ cargo install --path crates/anyocr-cli
 方式二，只添加 MCP 服务：
 
 ```powershell
-claude mcp add anyocr -- anyocr mcp
+claude mcp add anyocr -- npx -y anyocr mcp
+# 已全局安装时：claude mcp add anyocr -- anyocr mcp
 ```
 
 Skill 位于 `integrations/claude-plugin/skills/anyocr/SKILL.md`。它告诉智能体什么时候用 AnyOCR，以及长文档“先搜索定位、再按页读取”的流程。
@@ -44,7 +52,7 @@ Skill 位于 `integrations/claude-plugin/skills/anyocr/SKILL.md`。它告诉智�
 ### Codex
 
 ```powershell
-codex mcp add anyocr -- anyocr mcp
+codex mcp add anyocr -- npx -y anyocr mcp
 ```
 
 也可以直接写进 `~/.codex/config.toml`：

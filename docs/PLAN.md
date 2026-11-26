@@ -229,6 +229,16 @@ AnyOCR 是一个本地优先的 OCR 桌面应用。它用 Tauri 2 + Vue 3 重写
     3. 再搜“朗斯基行列式”，0.1 s 命中 17 处，首处在第 86 页。
     4. `ocr_pdf` 读取第 86 页，原文正确。再次读取命中缓存，用时 0.0 s。
   - 待做：发布阶段做 npm 包装（`npx anyocr-mcp`，按平台提供预编译二进制并带上 pdfium.dll）；在用户真实的 Claude Code / Codex 中试用。
+- [x] **检查更新与发布流程**（2026-11-26，用户提出）：
+  - Tauri updater 插件读取 `releases/latest/download/latest.json`，更新包用 minisign 签名校验。私钥在本机 `%USERPROFILE%\.tauri\`，不进仓库。
+  - 设置页“更新”：显示当前版本，可手动检查，可开关“启动时自动检查”，可取消忽略。
+  - 启动 4 s 后自动检查。有新版本时弹窗显示版本号、发布日期和更新说明，提供“立即更新”（显示下载进度，装完自动重启）、“稍后”和“忽略此版本”。忽略的版本不再自动弹窗，手动检查时仍会显示。
+  - `release.yml`：推送 `v*` 标签后先检查三处版本号与标签一致，再用 tauri-action 发布安装包、更新包和 `latest.json`，上传命令行压缩包；配置了 `NPM_TOKEN` 时同时发布 npm 包。
+  - CI 构建用 `tauri.nosign.conf.json` 关闭更新包，避免因缺少私钥失败。
+  - npm 分发：
+    - `anyocr` 是 JS 启动器，`@copylee/anyocr-win32-x64` 带 `anyocr.exe` 和 `pdfium.dll`（16 MB）。
+    - 在干净目录从 tarball 安装后，`npx anyocr ocr` 和 `npx anyocr mcp`（stdio 干净，握手与调用正常）都已验证。
+  - 待用户在 GitHub 仓库设置 Secrets 后才能走正式发布（见 `docs/RELEASE.md`）。
 - [ ] M7 ← 下一步
 
 ### 新增里程碑：Agent 集成（用户 2026-11-25 提出，排在 M3 之后，可按需提前）

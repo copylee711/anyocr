@@ -10,6 +10,7 @@ import { onJobEvent } from "../api/app";
 import { useCapture } from "../stores/capture";
 import { useSettings } from "../stores/settings";
 import { useTasks } from "../stores/tasks";
+import { useUpdater } from "../stores/updater";
 
 const { t } = useI18n();
 const message = useMessage();
@@ -17,6 +18,7 @@ const router = useRouter();
 const settings = useSettings();
 const tasks = useTasks();
 const capture = useCapture();
+const updater = useUpdater();
 const unlisteners: (() => void)[] = [];
 
 async function applyHotkeys() {
@@ -45,6 +47,8 @@ onMounted(async () => {
   // 设置加载后立即注册一次（首次运行时设置文件里还没有快捷键，需要用默认值），之后随修改重新注册
   await applyHotkeys();
   watch(() => JSON.stringify(settings.s.hotkeys), applyHotkeys);
+  // 启动后稍等再检查更新，避免与模型加载、首屏渲染抢资源；失败时静默
+  if (settings.s.update.autoCheck) setTimeout(() => updater.checkNow(true), 4000);
 });
 onBeforeUnmount(() => unlisteners.forEach((u) => u()));
 </script>

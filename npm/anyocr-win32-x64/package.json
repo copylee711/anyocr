@@ -1,0 +1,25 @@
+{
+  "name": "@copylee/anyocr-win32-x64",
+  "version": "0.1.0",
+  "description": "anyocr 的 Windows x64 预编译二进制（由 anyocr 包自动选用，无需单独安装）。",
+  "homepage": "https://github.com/copylee711/anyocr",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/copylee711/anyocr.git"
+  },
+  "license": "MIT",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "anyocr.exe",
+    "pdfium.dll",
+    "THIRD_PARTY.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

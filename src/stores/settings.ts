@@ -41,6 +41,12 @@ export interface Settings {
     /** 各引擎的非密钥字段（模型、地域等） */
     engines: Record<string, Record<string, string>>;
   };
+  update: {
+    /** 启动时自动检查更新 */
+    autoCheck: boolean;
+    /** 用户选择忽略的版本，自动检查时不再为它弹窗 */
+    ignoredVersion: string;
+  };
   vlm: {
     provider: string;
     /** 为空用预设默认模型 */
@@ -93,6 +99,7 @@ export function defaultSettings(): Settings {
     },
     batch: { parser: "multi_para", recurse: true, output: defaultOutput(["txt"]) },
     online: { chain: ["local"], timeout: 60, concurrency: 4, engines: {} },
+    update: { autoCheck: true, ignoredVersion: "" },
     vlm: {
       provider: "deepseek",
       model: "",

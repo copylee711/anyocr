@@ -71,6 +71,9 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // 检查更新：从 GitHub Release 的 latest.json 获取新版本，安装后用 process 插件重启
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             // 安装包中 pdfium.dll 位于资源目录

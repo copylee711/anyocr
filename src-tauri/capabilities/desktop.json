@@ -1,0 +1,7 @@
+{
+  "identifier": "desktop-capability",
+  "platforms": ["macOS", "windows", "linux"],
+  "windows": ["main"],
+  "permissions": ["updater:default", "process:allow-restart"],
+  "description": "主窗口：检查更新与重启"
+}

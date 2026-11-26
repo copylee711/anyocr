@@ -1,0 +1,89 @@
+# 发布：推送 v* 标签（如 v0.2.0）后自动构建并发布到 GitHub Release。
+# - 桌面安装包（NSIS）+ 签名的更新包 + latest.json（应用内“检查更新”读取它）
+# - 命令行压缩包 anyocr-cli-<版本>-win-x64.zip
+# - 若配置了 NPM_TOKEN，同时发布 npm 包 anyocr 与 @copylee/anyocr-win32-x64
+#
+# 需要的仓库 Secrets：
+#   TAURI_SIGNING_PRIVATE_KEY           更新签名私钥（本机 %USERPROFILE%\.tauri\anyocr.key 的内容）
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  私钥密码（%USERPROFILE%\.tauri\anyocr.key.password）
+#   NPM_TOKEN                           可选，npm 发布令牌
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      # 步骤的 if 只能读取作业级 env，借此判断是否配置了 npm 令牌
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: 检查版本号与标签一致
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauri = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargo = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ($tag -ne $pkg -or $tag -ne $tauri -or $tag -ne $cargo) {
+            throw "标签 $tag 与版本号不一致：package.json=$pkg tauri.conf.json=$tauri Cargo.toml=$cargo"
+          }
+
+      - name: 下载 PDFium
+        shell: pwsh
+        run: ./scripts/fetch-pdfium.ps1
+      - run: pnpm install --frozen-lockfile
+
+      - name: 构建桌面安装包并发布 Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: AnyOCR ${{ github.ref_name }}
+          releaseBody: |
+            下载 `AnyOCR_*_x64-setup.exe` 安装。已安装的版本会在启动时提示更新，也可以在“设置 → 更新”中手动检查。
+            命令行与 MCP 服务：下载 `anyocr-cli-*-win-x64.zip`，或运行 `npx -y anyocr --help`。
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+
+      - name: 构建命令行
+        run: cargo build --release -p anyocr-cli
+
+      - name: 打包命令行并上传到 Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          $dir = "target/anyocr-cli"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item target/release/anyocr.exe, vendor/pdfium/win-x64/pdfium.dll, LICENSE, NOTICE $dir
+          $zip = "target/anyocr-cli-$v-win-x64.zip"
+          Compress-Archive -Path "$dir/*" -DestinationPath $zip -Force
+          gh release upload "${{ github.ref_name }}" $zip --clobber
+
+      - name: 发布 npm 包
+        if: ${{ env.NPM_TOKEN != '' }}
+        shell: pwsh
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: ./scripts/pack-npm.ps1 -Publish

@@ -7,6 +7,7 @@ import AppIcon from "./components/AppIcon.vue";
 import ContextMenu from "./components/ContextMenu.vue";
 import GlobalListeners from "./components/GlobalListeners.vue";
 import TitleBar from "./components/TitleBar.vue";
+import UpdateDialog from "./components/UpdateDialog.vue";
 import { bottomNavItems, navItems } from "./router";
 import { useSettings } from "./stores/settings";
 import { darkOverrides, lightOverrides } from "./theme";
@@ -40,6 +41,7 @@ watchEffect(() => {
   >
     <NMessageProvider>
       <GlobalListeners />
+      <UpdateDialog />
       <div class="shell">
         <!-- iPadOS 风格侧栏：毛玻璃材质、图标+文字、胶囊形选中态 -->
         <aside class="sidebar" data-tauri-drag-region>

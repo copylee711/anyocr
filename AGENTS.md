@@ -44,6 +44,10 @@ pnpm lint; pnpm typecheck; pnpm test; pnpm format
 # CLI（crates/anyocr-cli，二进制名 anyocr）
 cargo run --release -p anyocr-cli -- ocr a.png --parser multi_para --format json
 cargo run --release -p anyocr-cli -- bench book.pdf --pages 1-20 --device directml
+cargo run -p anyocr-cli -- mcp                      # stdio MCP 服务（智能体接入，见 docs/AGENTS-INTEGRATION.md）
+
+# 发布：见 docs/RELEASE.md（推送 v* 标签触发 release.yml；更新签名私钥不在仓库里）
+pwsh scripts/pack-npm.ps1          # 组装 npm 包（anyocr + @copylee/anyocr-win32-x64）
 ```
 
 - 模型首次使用时自动下载到 `%APPDATA%/anyocr/models`（桌面端为 Tauri 的 app_data_dir/models）。
