@@ -43,7 +43,8 @@ cargo install --path crates/anyocr-cli
 方式二，只添加 MCP 服务：
 
 ```powershell
-claude mcp add anyocr -- npx -y anyocr mcp
+claude mcp add anyocr -- cmd /c npx -y anyocr mcp
+# Windows 上 Claude Code 通过 npx 启动本地 MCP 服务需要 cmd /c；macOS / Linux 去掉 cmd /c
 # 已全局安装时：claude mcp add anyocr -- anyocr mcp
 ```
 

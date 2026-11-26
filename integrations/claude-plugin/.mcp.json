@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "anyocr": {
-      "command": "anyocr",
-      "args": ["mcp"]
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "anyocr@latest", "mcp"]
     }
   }
 }
