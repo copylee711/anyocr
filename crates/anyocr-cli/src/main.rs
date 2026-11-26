@@ -13,6 +13,7 @@ use anyocr_core::tbpu::Parser as Tbpu;
 use std::sync::Arc;
 
 use anyocr_engines::online::{self, mineru};
+use anyocr_engines::vlm::{self, VlmClient, VlmConfig, VlmEngine};
 use anyocr_engines::{ChainEngine, Device, LocalConfig, LocalEngine, LocalModel};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
@@ -119,6 +120,37 @@ fn run_md(args: MdArgs) -> Result<()> {
     Ok(())
 }
 
+/// VLM 服务的密钥环境变量：`ANYOCR_VLM_<服务>_API_KEY`，DeepSeek / OpenAI 兼容官方变量名。
+fn vlm_key(provider: &str) -> Option<String> {
+    let official = match provider {
+        "deepseek" => Some("DEEPSEEK_API_KEY"),
+        "openai" => Some("OPENAI_API_KEY"),
+        "gemini" => Some("GEMINI_API_KEY"),
+        "qwen" => Some("DASHSCOPE_API_KEY"),
+        _ => None,
+    };
+    std::env::var(format!("ANYOCR_VLM_{}_API_KEY", provider.to_uppercase()))
+        .ok()
+        .or_else(|| official.and_then(|v| std::env::var(v).ok()))
+}
+
+/// 按服务预设构造 VLM 客户端。
+pub(crate) fn vlm_client(provider: &str, model: &str, base_url: &str) -> Result<VlmClient> {
+    let preset = vlm::presets()
+        .into_iter()
+        .find(|p| p.id == provider)
+        .with_context(|| format!("未知的 VLM 服务 {provider}，可用：deepseek、qwen、siliconflow、zhipu、volcengine、openai、gemini、ollama、custom"))?;
+    let key = vlm_key(provider);
+    if preset.needs_key && key.is_none() {
+        anyhow::bail!(
+            "缺少 {provider} 的密钥：请设置环境变量 ANYOCR_VLM_{}_API_KEY",
+            provider.to_uppercase()
+        );
+    }
+    let config = VlmConfig::from_preset(&preset, key, model, base_url);
+    Ok(VlmClient::new(config)?)
+}
+
 fn run_engines() {
     let mut all = online::presets();
     all.push(online::mineru_preset());
@@ -146,14 +178,36 @@ fn run_engines() {
             println!("    获取 Key：{u}");
         }
     }
+    println!("\n视觉大模型（--review <服务> 复核，或 --engine vlm_<服务> 识别）：");
+    for p in vlm::presets() {
+        println!(
+            "{:<16} {}，默认模型 {}{}",
+            p.id,
+            p.name,
+            if p.model.is_empty() {
+                "（需填写）"
+            } else {
+                p.model
+            },
+            if p.verified { "" } else { "（未实测）" }
+        );
+        if p.needs_key {
+            println!("    ANYOCR_VLM_{}_API_KEY", p.id.to_uppercase());
+        }
+        println!("    获取 Key：{}", p.key_url);
+    }
 }
 
 #[derive(Args)]
 pub(crate) struct EngineArgs {
     /// 引擎，逗号分隔即为 fallback 链，如 `paddle_aistudio,local`。local 为本地引擎；
-    /// 在线引擎的密钥从环境变量读取（见 `anyocr engines`）
+    /// `vlm_<服务>`（如 vlm_deepseek）为视觉大模型识别（本地检测行框 + VLM 转写）；
+    /// 密钥从环境变量读取（见 `anyocr engines`）
     #[arg(long, default_value = "local")]
     pub(crate) engine: String,
+    /// `vlm_<服务>` 引擎使用的模型（默认用预设模型）
+    #[arg(long, default_value = "")]
+    vlm_model: String,
     /// 本地模型：pp-ocrv6-tiny / pp-ocrv6-small / pp-ocrv6-medium / pp-ocrv5-mobile / pp-ocrv5-server
     #[arg(long, default_value = "pp-ocrv6-small")]
     pub(crate) model: LocalModel,
@@ -186,7 +240,7 @@ impl EngineArgs {
         let presets = online::presets();
         let mut shared: Vec<Option<Arc<dyn OcrEngine>>> = Vec::new();
         for id in &ids {
-            if *id == "local" {
+            if *id == "local" || id.starts_with("vlm_") {
                 shared.push(None);
                 continue;
             }
@@ -201,11 +255,22 @@ impl EngineArgs {
             .map(|_| {
                 let list = shared
                     .iter()
-                    .map(|s| match s {
+                    .zip(&ids)
+                    .map(|(s, id)| match s {
                         Some(e) => Ok(Arc::clone(e)),
-                        None => self
-                            .build_local()
-                            .map(|e| Arc::new(e) as Arc<dyn OcrEngine>),
+                        None => {
+                            let local = Arc::new(self.build_local()?) as Arc<dyn OcrEngine>;
+                            match id.strip_prefix("vlm_") {
+                                // 视觉大模型识别：本地引擎提供行框，VLM 给出文字
+                                Some(provider) => {
+                                    let client = vlm_client(provider, &self.vlm_model, "")?;
+                                    let name = format!("VLM {}", client.model());
+                                    Ok(Arc::new(VlmEngine::new(id, &name, client, Some(local)))
+                                        as Arc<dyn OcrEngine>)
+                                }
+                                None => Ok(local),
+                            }
+                        }
                     })
                     .collect::<Result<Vec<_>>>()?;
                 Ok(if list.len() == 1 {
@@ -218,7 +283,9 @@ impl EngineArgs {
     }
 
     pub(crate) fn uses_local(&self) -> bool {
-        self.engine.split(',').any(|s| s.trim() == "local")
+        self.engine
+            .split(',')
+            .any(|s| s.trim() == "local" || s.trim().starts_with("vlm_"))
     }
 
     fn build_local(&self) -> Result<LocalEngine> {

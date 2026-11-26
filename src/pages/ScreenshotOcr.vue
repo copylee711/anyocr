@@ -34,7 +34,9 @@ async function recognizeFile(path: string) {
   busy.value = true;
   try {
     const page = await ocrImageFile(path, parser.value);
+    capture.resetReview();
     capture.ocr = { mode: "ocr", image: path, page, codes: [], text: pageText(page), error: null };
+    if (settings.s.vlm.review.screenshot && page.blocks.length) capture.startReview(null);
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -79,6 +81,26 @@ async function copy() {
   await navigator.clipboard.writeText(text.value);
   message.success(t("common.copied"));
 }
+
+/** 被复核修改过的行：行号 → 原文（鼠标悬停显示）。 */
+const reviewedBefore = computed(() => {
+  const m = new Map<number, string>();
+  const r = capture.review;
+  if (r && r.status === "done" && !r.undone) for (const c of r.changes) if (c.accepted) m.set(c.index, c.before);
+  return m;
+});
+
+const reviewLabel = computed(() => {
+  const r = capture.review;
+  if (!r) return "";
+  if (r.status === "running") return t("screenshot.reviewing");
+  if (r.status === "failed") return t("screenshot.reviewFailed");
+  if (r.undone) return t("screenshot.reviewUndone");
+  const n = r.changes.filter((c) => c.accepted).length;
+  return n
+    ? t("screenshot.reviewFixed", { n, ms: r.elapsedMs ?? 0 })
+    : t("screenshot.reviewClean", { ms: r.elapsedMs ?? 0 });
+});
 
 function polygon(b: PageResult["blocks"][number]) {
   return b.box.map(([x, y]) => `${x},${y}`).join(" ");
@@ -148,6 +170,33 @@ function polygon(b: PageResult["blocks"][number]) {
           <span v-if="result" class="meta">
             {{ t("common.blocks", { n: result.blocks.length }) }} · {{ t("common.elapsed", { ms: result.elapsed_ms }) }}
           </span>
+          <span
+            v-if="capture.review"
+            class="review-chip"
+            :class="capture.review.status"
+            :title="capture.review.error ?? capture.review.model ?? ''"
+          >
+            <AppIcon name="sparkle" :size="13" />
+            {{ reviewLabel }}
+          </span>
+          <span class="grow" />
+          <NButton
+            v-if="capture.review?.status === 'done' && !capture.review.undone && reviewedBefore.size"
+            size="small"
+            quaternary
+            @click="capture.undoReview()"
+          >
+            {{ t("screenshot.undoReview") }}
+          </NButton>
+          <NButton
+            v-else-if="result?.blocks.length && capture.review?.status !== 'running'"
+            size="small"
+            quaternary
+            @click="capture.startReview(null)"
+          >
+            <template #icon><AppIcon name="sparkle" :size="15" /></template>
+            {{ t("screenshot.review") }}
+          </NButton>
           <NButton size="small" quaternary :disabled="!text" @click="copy">
             <template #icon><AppIcon name="copy" :size="15" /></template>
             {{ t("common.copy") }}
@@ -158,7 +207,8 @@ function polygon(b: PageResult["blocks"][number]) {
             <span
               v-for="(b, i) in result.blocks"
               :key="i"
-              :class="{ on: hovered === i }"
+              :class="{ on: hovered === i, fixed: reviewedBefore.has(i) }"
+              :title="reviewedBefore.has(i) ? t('screenshot.before', { text: reviewedBefore.get(i) }) : undefined"
               @mouseenter="hovered = i"
               @mouseleave="hovered = null"
               >{{ b.text }}{{ b.end }}</span
@@ -265,7 +315,7 @@ function polygon(b: PageResult["blocks"][number]) {
 }
 .result-head {
   display: flex;
-  justify-content: space-between;
+  gap: 10px;
   align-items: center;
   padding: 10px 12px 10px 16px;
   border-bottom: 1px solid var(--c-border);
@@ -274,6 +324,7 @@ function polygon(b: PageResult["blocks"][number]) {
 .meta {
   color: var(--c-text-2);
   font-size: 12.5px;
+  white-space: nowrap;
 }
 .text {
   flex: 1;
@@ -286,5 +337,36 @@ function polygon(b: PageResult["blocks"][number]) {
 .text span.on {
   background: color-mix(in srgb, var(--c-accent) 22%, transparent);
   border-radius: 4px;
+}
+.text span.fixed {
+  background: color-mix(in srgb, #34c759 18%, transparent);
+  box-shadow: inset 0 -1.5px 0 #34c759;
+  border-radius: 3px;
+}
+.grow {
+  flex: 1;
+}
+.review-chip {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--c-primary);
+  background: var(--c-primary-soft);
+}
+.review-chip.running :deep(svg) {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.review-chip.failed {
+  color: #d70015;
+  background: color-mix(in srgb, #ff3b30 10%, transparent);
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
 }
 </style>

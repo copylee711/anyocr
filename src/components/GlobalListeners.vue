@@ -35,6 +35,8 @@ onMounted(async () => {
       (r) => {
         if (r.error) message.error(r.error);
         else if (!r.text) message.info(r.mode === "ocr" ? t("screenshot.noText") : t("qrcode.none"));
+        else if (r.mode === "ocr" && settings.s.vlm.review.screenshot)
+          capture.startReview(settings.s.screenshot.copy ? r.text : null);
         router.push(r.mode === "ocr" ? "/screenshot" : "/qrcode");
       },
       (e) => message.warning(e),

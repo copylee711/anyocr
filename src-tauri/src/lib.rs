@@ -8,6 +8,7 @@ mod jobs;
 mod online_cmds;
 mod secrets;
 mod settings;
+mod vlm_cmds;
 
 use std::sync::Arc;
 
@@ -124,6 +125,9 @@ pub fn run() {
             online_cmds::secret_set,
             online_cmds::online_test,
             online_cmds::mineru_start,
+            vlm_cmds::vlm_presets,
+            vlm_cmds::vlm_test,
+            vlm_cmds::review_image,
         ])
         .run(tauri::generate_context!())
         .expect("启动 AnyOCR 失败");

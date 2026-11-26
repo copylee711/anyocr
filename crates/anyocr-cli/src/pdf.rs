@@ -5,11 +5,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, bail};
+use anyocr_core::Guard;
 use anyocr_core::OcrEngine;
 use anyocr_core::tbpu::Parser as Tbpu;
 use anyocr_engines::Device;
+use anyocr_engines::vlm::VlmReviewer;
 use anyocr_pdf::PdfTool;
-use anyocr_pdf::pipeline::{LayerMode, PageStatus, Progress, SearchableOptions, make_searchable};
+use anyocr_pdf::pipeline::{
+    LayerMode, PageStatus, Progress, ReviewSetup, SearchableOptions, make_searchable_with_review,
+};
 use clap::Args;
 
 use super::EngineArgs;
@@ -46,6 +50,27 @@ pub struct PdfArgs {
     /// 将处理报告（JSON）写入该文件
     #[arg(long)]
     report: Option<PathBuf>,
+    /// 用视觉大模型并行复核 OCR 结果，值为服务 id（如 deepseek），见 `anyocr engines`
+    #[arg(long)]
+    review: Option<String>,
+    /// 复核使用的模型（默认用预设模型）
+    #[arg(long, default_value = "")]
+    review_model: String,
+    /// 自定义服务地址（OpenAI 兼容，如 http://localhost:11434/v1）
+    #[arg(long, default_value = "")]
+    review_base_url: String,
+    /// 同时进行的复核请求数
+    #[arg(long, default_value_t = 4)]
+    review_concurrency: usize,
+    /// OCR 完成后最多再等待复核的秒数，超时的页保留 OCR 结果
+    #[arg(long, default_value_t = 10.0)]
+    review_grace: f32,
+    /// 只复核含置信度低于该值的行的页（如 0.9），默认复核全部页
+    #[arg(long)]
+    review_low_conf: Option<f32>,
+    /// 修改日志（JSONL，每页一行，含被拒绝的修改）写入该文件
+    #[arg(long)]
+    review_log: Option<PathBuf>,
 }
 
 fn default_output(input: &Path) -> PathBuf {
@@ -77,6 +102,25 @@ pub fn run(args: PdfArgs) -> Result<()> {
         .max(1);
     let engines: Vec<Arc<dyn OcrEngine>> = args.engine.build_many(workers)?;
     let pdf = PdfTool::new()?;
+    let review = match &args.review {
+        Some(provider) => {
+            let client = super::vlm_client(provider, &args.review_model, &args.review_base_url)?;
+            eprintln!(
+                "复核：{provider} / {}，并发 {}，截止 OCR 完成后 {} s",
+                client.model(),
+                args.review_concurrency,
+                args.review_grace
+            );
+            Some(ReviewSetup {
+                reviewer: Arc::new(VlmReviewer::new(client, Guard::default())),
+                concurrency: args.review_concurrency,
+                grace: std::time::Duration::from_secs_f32(args.review_grace.max(0.0)),
+                low_conf: args.review_low_conf,
+            })
+        }
+        None => None,
+    };
+    let mut review_log = Vec::new();
 
     let cancel = Arc::new(AtomicBool::new(false));
     {
@@ -97,9 +141,10 @@ pub fn run(args: PdfArgs) -> Result<()> {
     };
     let mut total = 0usize;
     let mut finished = 0usize;
-    let report = make_searchable(
+    let report = make_searchable_with_review(
         &pdf,
         &engines,
+        review.as_ref(),
         &args.input,
         &output,
         &opts,
@@ -129,6 +174,26 @@ pub fn run(args: PdfArgs) -> Result<()> {
             }
             Progress::Saving => eprintln!("正在保存 {}", output.display()),
             Progress::Recognized { .. } => {}
+            Progress::Reviewed { index, outcome } => {
+                for c in &outcome.changes {
+                    if c.accepted {
+                        eprintln!("  复核 第 {} 页：{} → {}", index + 1, c.before, c.after);
+                    } else {
+                        eprintln!(
+                            "  复核 第 {} 页（拒绝：{}）：{} → {}",
+                            index + 1,
+                            c.reason.as_deref().unwrap_or(""),
+                            c.before,
+                            c.after
+                        );
+                    }
+                }
+                review_log.push(serde_json::json!({ "page": index + 1, "outcome": outcome }));
+            }
+            Progress::ReviewSkipped { index, reason } => {
+                eprintln!("  复核 第 {} 页未应用：{reason}", index + 1);
+                review_log.push(serde_json::json!({ "page": index + 1, "skipped": reason }));
+            }
         },
     )
     .context("处理失败")?;
@@ -147,6 +212,24 @@ pub fn run(args: PdfArgs) -> Result<()> {
         (report.output_bytes as f64 / report.input_bytes.max(1) as f64 - 1.0) * 100.0
     );
     println!("输出：{}", output.display());
+    if let Some(s) = &report.review {
+        println!(
+            "复核：提交 {} 页，按时完成 {} 页，超时 {} 页，出错 {} 页；采纳 {} 处，拒绝 {} 处；OCR 完成于 {:.1} s，尾部等待 {:.1} s，复核累计 {:.1} s",
+            s.submitted,
+            s.reviewed,
+            s.timed_out,
+            s.failed,
+            s.accepted,
+            s.rejected,
+            s.ocr_done_ms as f64 / 1000.0,
+            s.tail_wait_ms as f64 / 1000.0,
+            s.review_ms as f64 / 1000.0
+        );
+    }
+    if let Some(path) = &args.review_log {
+        let lines: Vec<String> = review_log.iter().map(|v| v.to_string()).collect();
+        std::fs::write(path, lines.join("\n") + "\n")?;
+    }
 
     if args.verify {
         verify(&pdf, &output, args.password.as_deref(), &report)?;

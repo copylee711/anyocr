@@ -63,7 +63,12 @@ pub async fn ocr_image_file(
 ) -> Result<PageResult, String> {
     let parser: Parser = parser.parse()?;
     let engine = engines
-        .task_engines(&settings.engine(), &settings.online(), Some(1))?
+        .task_engines(
+            &settings.engine(),
+            &settings.online(),
+            &settings.vlm(),
+            Some(1),
+        )?
         .remove(0);
     tauri::async_runtime::spawn_blocking(move || {
         let img = image::open(&path)
@@ -103,7 +108,7 @@ fn load_engines(app: &AppHandle, job: u64) -> Option<Vec<Arc<dyn anyocr_core::Oc
     let st = app.state::<SettingsState>();
     match app
         .state::<EngineState>()
-        .task_engines(&st.engine(), &st.online(), None)
+        .task_engines(&st.engine(), &st.online(), &st.vlm(), None)
     {
         Ok(e) => Some(e),
         Err(e) => {
@@ -114,6 +119,25 @@ fn load_engines(app: &AppHandle, job: u64) -> Option<Vec<Arc<dyn anyocr_core::Oc
                     cancelled: false,
                     outputs: vec![],
                     error: Some(format!("引擎加载失败：{e}")),
+                },
+            );
+            None
+        }
+    }
+}
+
+/// 读取复核设置；开启了复核但无法构造（如缺密钥）时以 `JobDone` 报错并返回 `None`。
+fn load_review(app: &AppHandle, job: u64) -> Option<Option<anyocr_core::review::ReviewSetup>> {
+    match crate::engines::review_setup(&app.state::<SettingsState>().vlm()) {
+        Ok(r) => Some(r),
+        Err(e) => {
+            let _ = app.emit(
+                "job",
+                jobs::JobEvent::JobDone {
+                    job,
+                    cancelled: false,
+                    outputs: vec![],
+                    error: Some(format!("视觉大模型复核无法启动：{e}")),
                 },
             );
             None
@@ -133,8 +157,10 @@ pub fn doc_start(
     let jobs_state = Arc::clone(&jobs_state);
     let (job, cancel) = jobs_state.register();
     std::thread::spawn(move || {
-        if let Some(engines) = load_engines(&app, job) {
-            jobs::run_doc(emitter(&app), pdf, engines, job, cancel, args);
+        if let Some(review) = load_review(&app, job)
+            && let Some(engines) = load_engines(&app, job)
+        {
+            jobs::run_doc(emitter(&app), pdf, engines, job, cancel, args, review);
         }
         jobs_state.finish(job);
     });
@@ -147,8 +173,10 @@ pub fn batch_start(app: AppHandle, jobs_state: State<'_, Arc<Jobs>>, args: Batch
     let jobs_state = Arc::clone(&jobs_state);
     let (job, cancel) = jobs_state.register();
     std::thread::spawn(move || {
-        if let Some(engines) = load_engines(&app, job) {
-            jobs::run_batch(emitter(&app), engines, job, cancel, args);
+        if let Some(review) = load_review(&app, job)
+            && let Some(engines) = load_engines(&app, job)
+        {
+            jobs::run_batch(emitter(&app), engines, job, cancel, args, review);
         }
         jobs_state.finish(job);
     });

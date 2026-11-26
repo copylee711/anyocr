@@ -9,8 +9,12 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use anyocr_core::OcrEngine;
+use anyocr_core::review;
+use anyocr_core::review::ReviewOutcome;
+pub use anyocr_core::review::{ReviewPool, ReviewSetup};
 use anyocr_core::tbpu::Parser;
+use anyocr_core::{OcrEngine, PageResult};
+use image::RgbImage;
 use serde::{Deserialize, Serialize};
 
 use crate::textlayer::TextLayerWriter;
@@ -108,6 +112,31 @@ pub struct Report {
     pub ocr_ms: u64,
     pub input_bytes: u64,
     pub output_bytes: u64,
+    /// 开启 VLM 复核时的统计。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<ReviewStats>,
+}
+
+/// VLM 复核统计（验收用的计时埋点）。
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct ReviewStats {
+    /// 提交复核的页数（未达到低置信度条件的页不提交）。
+    pub submitted: usize,
+    /// 按时返回并应用的页数。
+    pub reviewed: usize,
+    /// 超过截止时间仍未返回、保留原 OCR 结果的页数。
+    pub timed_out: usize,
+    /// 复核出错的页数（保留原结果）。
+    pub failed: usize,
+    /// 接受 / 拒绝的修改行数。
+    pub accepted: usize,
+    pub rejected: usize,
+    /// 各页复核用时之和。
+    pub review_ms: u64,
+    /// 从任务开始到全部 OCR 完成的用时。
+    pub ocr_done_ms: u64,
+    /// OCR 完成后为等待复核额外花的时间（尾部等待）。
+    pub tail_wait_ms: u64,
 }
 
 impl Report {
@@ -138,6 +167,13 @@ pub enum Progress {
     Planned { total: usize, to_ocr: usize },
     /// 一页处理完成（含跳过与失败）。
     Page(PageReport),
+    /// 一页的复核结果（已应用的修改在 `outcome` 中 `accepted = true`）。
+    Reviewed {
+        index: usize,
+        outcome: ReviewOutcome,
+    },
+    /// 一页的复核失败或超时，保留原 OCR 结果。
+    ReviewSkipped { index: usize, reason: String },
     /// 一页的识别结果（按页序在保存前依次给出），供导出 txt / md 等格式。
     Recognized {
         index: usize,
@@ -151,6 +187,23 @@ pub enum Progress {
 pub fn make_searchable(
     pdf: &PdfTool,
     engines: &[Arc<dyn OcrEngine>],
+    input: &Path,
+    output: &Path,
+    opts: &SearchableOptions,
+    cancel: &AtomicBool,
+    on_progress: impl FnMut(Progress),
+) -> Result<Report, PdfError> {
+    make_searchable_with_review(pdf, engines, None, input, output, opts, cancel, on_progress)
+}
+
+type OcrMsg = (usize, Result<PageResult, String>, Option<RgbImage>);
+
+/// 同 [`make_searchable`]，可选地用视觉大模型并行复核每页的 OCR 结果。
+#[allow(clippy::too_many_arguments)]
+pub fn make_searchable_with_review(
+    pdf: &PdfTool,
+    engines: &[Arc<dyn OcrEngine>],
+    review_setup: Option<&ReviewSetup>,
     input: &Path,
     output: &Path,
     opts: &SearchableOptions,
@@ -198,11 +251,14 @@ pub fn make_searchable(
 
     let mut render_ms = 0u64;
     let mut ocr_ms = 0u64;
+    let mut review_stats = None;
     if !to_ocr.is_empty() && !engines.is_empty() {
         let (tx, rx) = mpsc::sync_channel::<RenderedPage>(engines.len() * 2);
         let rx = Arc::new(Mutex::new(rx));
-        let (rtx, rrx) = mpsc::channel::<(usize, Result<anyocr_core::PageResult, String>)>();
+        let (rtx, rrx) = mpsc::channel::<OcrMsg>();
         let parser = opts.parser;
+        let keep_image = review_setup.is_some();
+        let mut rev = review_setup.map(ReviewPool::start);
         let workers: Vec<_> = engines
             .iter()
             .map(|engine| {
@@ -220,7 +276,8 @@ pub fn make_searchable(
                                 p
                             })
                             .map_err(|e| e.to_string());
-                        if rtx.send((page.index, res)).is_err() {
+                        let image = (keep_image && res.is_ok()).then_some(page.image);
+                        if rtx.send((page.index, res, image)).is_err() {
                             break;
                         }
                     }
@@ -231,11 +288,25 @@ pub fn make_searchable(
 
         // 主线程渲染；同时非阻塞地收取识别结果，及时推送进度
         let mut results = Vec::with_capacity(to_ocr.len());
-        let drain = |results: &mut Vec<(usize, Result<anyocr_core::PageResult, String>)>,
+        let accept = |msg: OcrMsg,
+                      results: &mut Vec<(usize, Result<PageResult, String>)>,
+                      rev: &mut Option<ReviewPool>,
+                      on_progress: &mut dyn FnMut(Progress)| {
+            let (i, r, image) = msg;
+            on_progress(Progress::Page(page_report(i, &r)));
+            if let (Some(rev), Some(img), Ok(page)) = (rev.as_mut(), image, &r) {
+                rev.submit(i, img, page);
+            }
+            results.push((i, r));
+        };
+        let drain = |results: &mut Vec<(usize, Result<PageResult, String>)>,
+                     rev: &mut Option<ReviewPool>,
                      on_progress: &mut dyn FnMut(Progress)| {
-            while let Ok((i, r)) = rrx.try_recv() {
-                on_progress(Progress::Page(page_report(i, &r)));
-                results.push((i, r));
+            while let Ok(msg) = rrx.try_recv() {
+                accept(msg, results, rev, on_progress);
+            }
+            if let Some(rev) = rev.as_mut() {
+                rev.poll();
             }
         };
         let mut t = Instant::now();
@@ -246,17 +317,26 @@ pub fn make_searchable(
                     return false;
                 }
                 let ok = tx.send(p).is_ok();
-                drain(&mut results, &mut on_progress);
+                drain(&mut results, &mut rev, &mut on_progress);
                 t = Instant::now();
                 ok
             });
         drop(tx);
-        for (i, r) in rrx.iter() {
-            on_progress(Progress::Page(page_report(i, &r)));
-            results.push((i, r));
+        for msg in rrx.iter() {
+            accept(msg, &mut results, &mut rev, &mut on_progress);
         }
         for w in workers {
             let _ = w.join();
+        }
+        if let (Some(rev), Some(setup)) = (rev.as_mut(), review_setup) {
+            let ocr_done = Instant::now();
+            rev.finish(ocr_done + setup.grace, cancel);
+            review_stats = Some(ReviewStats {
+                submitted: rev.submitted_count(),
+                ocr_done_ms: (ocr_done - start).as_millis() as u64,
+                tail_wait_ms: ocr_done.elapsed().as_millis() as u64,
+                ..Default::default()
+            });
         }
         render_result?;
         if cancel.load(Ordering::Relaxed) {
@@ -264,7 +344,36 @@ pub fn make_searchable(
         }
 
         results.sort_by_key(|r| r.0);
-        for (i, r) in results {
+        for (i, mut r) in results {
+            if let (Some(rev), Some(stats), Ok(page)) =
+                (rev.as_mut(), review_stats.as_mut(), &mut r)
+            {
+                match rev.outcomes.remove(&i) {
+                    Some(Ok(outcome)) => {
+                        review::apply(page, &outcome);
+                        stats.reviewed += 1;
+                        stats.accepted += outcome.accepted();
+                        stats.rejected += outcome.rejected();
+                        stats.review_ms += outcome.elapsed_ms;
+                        on_progress(Progress::Reviewed { index: i, outcome });
+                    }
+                    Some(Err(e)) => {
+                        stats.failed += 1;
+                        on_progress(Progress::ReviewSkipped {
+                            index: i,
+                            reason: e,
+                        });
+                    }
+                    None if rev.was_submitted(i) => {
+                        stats.timed_out += 1;
+                        on_progress(Progress::ReviewSkipped {
+                            index: i,
+                            reason: "超过截止时间，保留 OCR 结果".into(),
+                        });
+                    }
+                    None => {}
+                }
+            }
             let rep = page_report(i, &r);
             if let Ok(page) = r {
                 ocr_ms += page.elapsed_ms;
@@ -294,10 +403,11 @@ pub fn make_searchable(
         ocr_ms,
         input_bytes: size(input),
         output_bytes: size(output),
+        review: review_stats,
     })
 }
 
-fn page_report(index: usize, r: &Result<anyocr_core::PageResult, String>) -> PageReport {
+fn page_report(index: usize, r: &Result<PageResult, String>) -> PageReport {
     let status = match r {
         Ok(p) => PageStatus::Done {
             blocks: p.blocks.len(),
@@ -314,5 +424,74 @@ fn page_report(index: usize, r: &Result<anyocr_core::PageResult, String>) -> Pag
     PageReport {
         page: index + 1,
         status,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use anyocr_core::review::Reviewer;
+    use anyocr_core::{EngineError, LineChange, TextBlock};
+
+    use super::*;
+
+    /// 第 0 页快速返回一处修改，第 1 页很慢（超过截止时间）。
+    struct FakeReviewer;
+
+    impl Reviewer for FakeReviewer {
+        fn name(&self) -> &str {
+            "fake"
+        }
+        fn review(&self, _: &RgbImage, page: &PageResult) -> Result<ReviewOutcome, EngineError> {
+            if page.blocks[0].text == "slow" {
+                std::thread::sleep(Duration::from_millis(800));
+            }
+            Ok(ReviewOutcome {
+                changes: vec![LineChange {
+                    index: 0,
+                    before: page.blocks[0].text.clone(),
+                    after: "fixed".into(),
+                    accepted: true,
+                    reason: None,
+                }],
+                elapsed_ms: 1,
+                model: "fake".into(),
+            })
+        }
+    }
+
+    fn page(text: &str, score: f32) -> PageResult {
+        PageResult {
+            blocks: vec![TextBlock::from_rect(text, [0., 0., 10., 10.], score)],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn review_run_respects_deadline_and_low_conf() {
+        let setup = ReviewSetup {
+            reviewer: Arc::new(FakeReviewer),
+            concurrency: 2,
+            grace: Duration::from_millis(200),
+            low_conf: Some(0.9),
+        };
+        let mut run = ReviewPool::start(&setup);
+        run.submit(0, RgbImage::new(1, 1), &page("fast", 0.5));
+        run.submit(1, RgbImage::new(1, 1), &page("slow", 0.5));
+        // 置信度都不低于阈值：不提交
+        run.submit(2, RgbImage::new(1, 1), &page("good", 0.95));
+        let t = Instant::now();
+        run.finish(Instant::now() + setup.grace, &AtomicBool::new(false));
+        assert!(t.elapsed() < Duration::from_millis(600));
+        assert_eq!(run.submitted_count(), 2);
+        assert!(run.was_submitted(1) && !run.was_submitted(2));
+        let mut p = page("fast", 0.5);
+        let Some(Ok(o)) = run.outcomes.remove(&0) else {
+            panic!("第 0 页应按时返回")
+        };
+        review::apply(&mut p, &o);
+        assert_eq!(p.blocks[0].text, "fixed");
+        assert!(!run.outcomes.contains_key(&1), "慢的页应超时");
     }
 }

@@ -3,12 +3,48 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use anyocr_core::Guard;
 use anyocr_core::OcrEngine;
+use anyocr_core::review::ReviewSetup;
 use anyocr_engines::online::{self, OnlineConfig, Preset};
+use anyocr_engines::vlm::{self, VlmClient, VlmConfig, VlmEngine, VlmReviewer};
 use anyocr_engines::{ChainEngine, LocalConfig, LocalEngine};
 
 use crate::secrets;
-use crate::settings::{EngineSettings, OnlineSettings};
+use crate::settings::{EngineSettings, OnlineSettings, VlmSettings};
+
+/// 凭据管理器中 VLM 密钥的引擎名。
+pub fn vlm_secret_id(provider: &str) -> String {
+    format!("vlm_{provider}")
+}
+
+/// 按设置构造 VLM 客户端。
+pub fn vlm_client(v: &VlmSettings) -> Result<VlmClient, String> {
+    let preset = vlm::presets()
+        .into_iter()
+        .find(|p| p.id == v.provider)
+        .ok_or_else(|| format!("未知的视觉大模型服务：{}", v.provider))?;
+    let key = secrets::get(&vlm_secret_id(&v.provider), "api_key");
+    if preset.needs_key && key.is_none() {
+        return Err(format!("请先在设置中填写 {} 的 API Key", preset.name));
+    }
+    let mut config = VlmConfig::from_preset(&preset, key, &v.model, &v.base_url);
+    config.timeout_secs = v.timeout.max(5);
+    VlmClient::new(config).map_err(|e| e.to_string())
+}
+
+/// 文档任务的复核设置；未开启时为 `None`。
+pub fn review_setup(v: &VlmSettings) -> Result<Option<ReviewSetup>, String> {
+    if !v.review.enabled {
+        return Ok(None);
+    }
+    Ok(Some(ReviewSetup {
+        reviewer: Arc::new(VlmReviewer::new(vlm_client(v)?, Guard::default())),
+        concurrency: v.review.concurrency.clamp(1, 16),
+        grace: std::time::Duration::from_secs_f32(v.review.grace.clamp(0.0, 600.0)),
+        low_conf: (v.review.low_conf > 0.0).then_some(v.review.low_conf),
+    }))
+}
 
 /// 在线引擎配置：设置中的非密钥字段 + 凭据管理器中的密钥。
 pub fn online_config(preset: &Preset, online: &OnlineSettings) -> OnlineConfig {
@@ -95,6 +131,7 @@ impl EngineState {
         &self,
         es: &EngineSettings,
         online: &OnlineSettings,
+        vlm_settings: &VlmSettings,
         n: Option<usize>,
     ) -> Result<Vec<Arc<dyn OcrEngine>>, String> {
         let chain: Vec<&str> = if online.chain.is_empty() {
@@ -102,7 +139,8 @@ impl EngineState {
         } else {
             online.chain.iter().map(String::as_str).collect()
         };
-        let has_local = chain.contains(&"local");
+        // “vlm”（视觉大模型识别）也需要本地引擎提供行框
+        let has_local = chain.contains(&"local") || chain.contains(&"vlm");
         let n = n
             .unwrap_or(if has_local {
                 es.worker_count()
@@ -117,9 +155,21 @@ impl EngineState {
         };
         let mut shared: Vec<Option<Arc<dyn OcrEngine>>> = Vec::new();
         let mut errors = Vec::new();
+        // 链中的“vlm”：每个并行实例一个 VlmEngine，行框来自同序号的本地引擎
+        let mut vlm_client_ok: Option<Result<(), String>> = None;
         for id in &chain {
             if *id == "local" {
                 shared.push(None);
+                continue;
+            }
+            if *id == "vlm" {
+                let r = vlm_client(vlm_settings).map(|_| ());
+                if let Err(e) = &r {
+                    errors.push(format!("视觉大模型：{e}"));
+                } else {
+                    shared.push(None);
+                }
+                vlm_client_ok = Some(r);
                 continue;
             }
             match build_online(id, online) {
@@ -133,22 +183,45 @@ impl EngineState {
         if shared.is_empty() {
             return Err(format!("没有可用的引擎（{}）", errors.join("；")));
         }
-        Ok((0..n)
+        let ids: Vec<&str> = chain
+            .iter()
+            .copied()
+            .filter(|id| *id != "vlm" || matches!(vlm_client_ok, Some(Ok(()))))
+            .filter(|id| {
+                *id == "local"
+                    || *id == "vlm"
+                    || !errors.iter().any(|e| e.starts_with(&format!("{id}：")))
+            })
+            .collect();
+        (0..n)
             .map(|i| {
-                let list: Vec<Arc<dyn OcrEngine>> = shared
+                let list = shared
                     .iter()
-                    .map(|s| match s {
-                        Some(e) => Arc::clone(e),
-                        None => Arc::clone(&locals[i]),
+                    .zip(&ids)
+                    .map(|(s, id)| -> Result<Arc<dyn OcrEngine>, String> {
+                        Ok(match s {
+                            Some(e) => Arc::clone(e),
+                            None if *id == "vlm" => {
+                                let client = vlm_client(vlm_settings)?;
+                                let name = format!("视觉大模型 {}", client.model());
+                                Arc::new(VlmEngine::new(
+                                    "vlm",
+                                    &name,
+                                    client,
+                                    Some(Arc::clone(&locals[i])),
+                                ))
+                            }
+                            None => Arc::clone(&locals[i]),
+                        })
                     })
-                    .collect();
-                if list.len() == 1 {
+                    .collect::<Result<Vec<_>, String>>()?;
+                Ok(if list.len() == 1 {
                     Arc::clone(&list[0])
                 } else {
                     Arc::new(ChainEngine::new(list)) as Arc<dyn OcrEngine>
-                }
+                })
             })
-            .collect())
+            .collect()
     }
 
     pub fn models_dir(&self) -> &PathBuf {

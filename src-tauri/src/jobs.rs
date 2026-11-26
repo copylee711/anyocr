@@ -6,12 +6,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
+use anyocr_core::review::{self, ReviewPool};
 use anyocr_core::tbpu::Parser;
 use anyocr_core::{OcrEngine, PageResult};
 use anyocr_output::{Format, OutputConfig, OutputSet, Record, data_text, fill_name_template};
 use anyocr_pdf::PdfTool;
 use anyocr_pdf::pipeline::{
-    LayerMode, PageReport, Progress, Report, SearchableOptions, make_searchable,
+    LayerMode, PageReport, Progress, Report, ReviewSetup, SearchableOptions,
+    make_searchable_with_review,
 };
 use serde::{Deserialize, Serialize};
 
@@ -73,6 +75,17 @@ pub enum JobEvent {
         job: u64,
         file: usize,
         page: PageReport,
+    },
+    /// 文档：一页的 VLM 复核结果（`skipped` 为未应用的原因，如超时）。
+    Reviewed {
+        job: u64,
+        file: usize,
+        page: usize,
+        accepted: usize,
+        rejected: usize,
+        skipped: Option<String>,
+        /// 图片任务：复核后的新文本（有修改时）。
+        text: Option<String>,
     },
     /// 在线文档解析的进度：阶段（uploading / pending / running / converting / downloading）与页数。
     Progress {
@@ -173,6 +186,7 @@ pub fn run_doc(
     job: u64,
     cancel: Arc<AtomicBool>,
     args: DocJob,
+    review: Option<ReviewSetup>,
 ) {
     let mut all_outputs = Vec::new();
     let mut job_error = None;
@@ -229,10 +243,12 @@ pub fn run_doc(
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default();
             let mut write_err = None;
+            let mut review_log: Vec<serde_json::Value> = Vec::new();
             let report =
-                make_searchable(
+                make_searchable_with_review(
                     &pdf,
                     &engines,
+                    review.as_ref(),
                     &input,
                     &pdf_out,
                     &opts,
@@ -268,6 +284,36 @@ pub fn run_doc(
                                 }
                             }
                         }
+                        Progress::Reviewed { index, outcome } => {
+                            emit(
+                                &app,
+                                JobEvent::Reviewed {
+                                    job,
+                                    file: fi,
+                                    page: index + 1,
+                                    accepted: outcome.accepted(),
+                                    rejected: outcome.rejected(),
+                                    skipped: None,
+                                    text: None,
+                                },
+                            );
+                            review_log.push(serde_json::json!({ "page": index + 1, "model": outcome.model, "elapsed_ms": outcome.elapsed_ms, "changes": outcome.changes }));
+                        }
+                        Progress::ReviewSkipped { index, reason } => {
+                            emit(
+                                &app,
+                                JobEvent::Reviewed {
+                                    job,
+                                    file: fi,
+                                    page: index + 1,
+                                    accepted: 0,
+                                    rejected: 0,
+                                    skipped: Some(reason.clone()),
+                                    text: None,
+                                },
+                            );
+                            review_log.push(serde_json::json!({ "page": index + 1, "skipped": reason }));
+                        }
                         Progress::Saving => {}
                     },
                 )
@@ -275,6 +321,14 @@ pub fn run_doc(
             let mut outputs = Vec::new();
             if args.write_pdf {
                 outputs.push(pdf_out.display().to_string());
+            }
+            // 复核修改日志（含被拒绝的修改），便于核查
+            if !review_log.is_empty() {
+                let path = out_dir.join(format!("{}.review.jsonl", stem(&input)));
+                let body: Vec<String> = review_log.iter().map(|v| v.to_string()).collect();
+                std::fs::write(&path, body.join("\n") + "\n")
+                    .map_err(|e| format!("写入复核日志失败：{e}"))?;
+                outputs.push(path.display().to_string());
             }
             if let Some(set) = set {
                 outputs.extend(
@@ -352,6 +406,7 @@ pub fn run_batch(
     job: u64,
     cancel: Arc<AtomicBool>,
     args: BatchJob,
+    review: Option<ReviewSetup>,
 ) {
     let fail = |app: &Emit, e: String| {
         emit(
@@ -407,7 +462,15 @@ pub fn run_batch(
             .collect::<Vec<_>>()
             .into_iter(),
     ));
-    let (tx, rx) = mpsc::channel::<(usize, Result<PageResult, String>, u64)>();
+    type Msg = (
+        usize,
+        Result<PageResult, String>,
+        u64,
+        Option<image::RgbImage>,
+    );
+    let (tx, rx) = mpsc::channel::<Msg>();
+    let keep_image = review.is_some();
+    let mut pool = review.as_ref().map(ReviewPool::start);
     let workers: Vec<_> = engines
         .into_iter()
         .map(|engine| {
@@ -425,14 +488,25 @@ pub fn run_batch(
                     let Some((i, path)) = next else { break };
                     emit(&app, JobEvent::FileStart { job, file: i });
                     let t = Instant::now();
+                    let mut kept = None;
                     let res = image::open(&path)
                         .map_err(|e| format!("无法打开图片：{e}"))
-                        .and_then(|img| engine.recognize(&img.to_rgb8()).map_err(|e| e.to_string()))
+                        .and_then(|img| {
+                            let rgb = img.to_rgb8();
+                            let r = engine.recognize(&rgb).map_err(|e| e.to_string());
+                            if keep_image {
+                                kept = Some(rgb);
+                            }
+                            r
+                        })
                         .map(|mut p| {
                             p.blocks = parser.run(p.blocks);
                             p
                         });
-                    if tx.send((i, res, t.elapsed().as_millis() as u64)).is_err() {
+                    if tx
+                        .send((i, res, t.elapsed().as_millis() as u64, kept))
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -444,7 +518,29 @@ pub fn run_batch(
     let mut pending: BTreeMap<usize, (Result<PageResult, String>, u64)> = BTreeMap::new();
     let mut next_write = 0usize;
     let mut write_err = None;
-    for (i, res, ms) in rx.iter() {
+    let mut write_ready = |pending: &mut BTreeMap<usize, (Result<PageResult, String>, u64)>,
+                           next_write: &mut usize,
+                           write_err: &mut Option<String>| {
+        while let Some((res, _)) = pending.remove(next_write) {
+            if let Some(set) = set.as_mut() {
+                let path = PathBuf::from(&args.files[*next_write]);
+                let name = path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                if let Err(e) = set.push(&Record {
+                    name,
+                    path,
+                    page: None,
+                    result: res,
+                }) {
+                    write_err.get_or_insert(e.to_string());
+                }
+            }
+            *next_write += 1;
+        }
+    };
+    for (i, res, ms, image) in rx.iter() {
         let (text, blocks, error) = match &res {
             Ok(p) => (Some(data_text(p)), p.blocks.len(), None),
             Err(e) => (None, 0, Some(e.clone())),
@@ -463,28 +559,48 @@ pub fn run_batch(
                 blocks,
             },
         );
+        if let (Some(pool), Some(img), Ok(page)) = (pool.as_mut(), image, &res) {
+            pool.submit(i, img, page);
+            pool.poll();
+        }
         pending.insert(i, (res, ms));
-        while let Some((res, _)) = pending.remove(&next_write) {
-            if let Some(set) = set.as_mut() {
-                let path = PathBuf::from(&args.files[next_write]);
-                let name = path
-                    .file_name()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                if let Err(e) = set.push(&Record {
-                    name,
-                    path,
-                    page: None,
-                    result: res,
-                }) {
-                    write_err.get_or_insert(e.to_string());
-                }
-            }
-            next_write += 1;
+        // 开启复核时等全部复核结束再按序写出，否则边识别边写
+        if pool.is_none() {
+            write_ready(&mut pending, &mut next_write, &mut write_err);
         }
     }
     for w in workers {
         let _ = w.join();
+    }
+    if let (Some(pool), Some(setup)) = (pool.as_mut(), review.as_ref()) {
+        pool.finish(Instant::now() + setup.grace, &cancel);
+        for (i, (res, _)) in pending.iter_mut() {
+            let Ok(page) = res else { continue };
+            let (accepted, rejected, skipped) = match pool.outcomes.remove(i) {
+                Some(Ok(o)) => {
+                    review::apply(page, &o);
+                    (o.accepted(), o.rejected(), None)
+                }
+                Some(Err(e)) => (0, 0, Some(e)),
+                None if pool.was_submitted(*i) => {
+                    (0, 0, Some("超过截止时间，保留 OCR 结果".to_owned()))
+                }
+                None => continue,
+            };
+            emit(
+                &app,
+                JobEvent::Reviewed {
+                    job,
+                    file: *i,
+                    page: 1,
+                    accepted,
+                    rejected,
+                    skipped,
+                    text: (accepted > 0).then(|| data_text(page)),
+                },
+            );
+        }
+        write_ready(&mut pending, &mut next_write, &mut write_err);
     }
     let outputs = match set.map(|s| s.finish()) {
         Some(Ok(files)) => files.into_iter().map(|p| p.display().to_string()).collect(),
@@ -639,6 +755,70 @@ mod tests {
         assert_eq!(v["kind"], "job_done");
     }
 
+    /// 把“宽N”改成“宽N（已复核）”的假复核器。
+    struct FakeReviewer;
+
+    impl anyocr_core::review::Reviewer for FakeReviewer {
+        fn name(&self) -> &str {
+            "fake"
+        }
+        fn review(
+            &self,
+            _: &image::RgbImage,
+            page: &PageResult,
+        ) -> Result<anyocr_core::ReviewOutcome, EngineError> {
+            let b = &page.blocks[0];
+            Ok(anyocr_core::ReviewOutcome {
+                changes: vec![anyocr_core::LineChange {
+                    index: 0,
+                    before: b.text.clone(),
+                    after: format!("{}（已复核）", b.text),
+                    accepted: true,
+                    reason: None,
+                }],
+                elapsed_ms: 1,
+                model: "fake".into(),
+            })
+        }
+    }
+
+    #[test]
+    fn batch_job_applies_review_before_writing() {
+        let dir = tmp("batch-review");
+        let p = dir.join("a.png");
+        image::RgbImage::from_pixel(120, 80, image::Rgb([255, 255, 255]))
+            .save(&p)
+            .unwrap();
+        let out = dir.join("out");
+        let (emit, events) = collector();
+        let args = BatchJob {
+            files: vec![p.display().to_string()],
+            parser: Parser::None,
+            output: output(&out, vec![Format::Txt]),
+        };
+        let review = anyocr_core::review::ReviewSetup {
+            reviewer: Arc::new(FakeReviewer),
+            concurrency: 1,
+            grace: std::time::Duration::from_secs(5),
+            low_conf: None,
+        };
+        run_batch(
+            emit,
+            vec![FakeEngine::shared()],
+            9,
+            Arc::new(AtomicBool::new(false)),
+            args,
+            Some(review),
+        );
+        let ev = events.lock().unwrap();
+        assert!(ev.iter().any(|e| matches!(
+            e,
+            JobEvent::Reviewed { accepted: 1, text: Some(t), .. } if t.contains("宽120（已复核）")
+        )));
+        let txt = std::fs::read_to_string(out.join("res.txt")).unwrap();
+        assert!(txt.contains("宽120（已复核）"), "{txt}");
+    }
+
     #[test]
     fn batch_job_writes_outputs_in_order() {
         let dir = tmp("batch");
@@ -668,6 +848,7 @@ mod tests {
             7,
             Arc::new(AtomicBool::new(false)),
             args,
+            None,
         );
 
         let ev = events.lock().unwrap();
@@ -757,6 +938,7 @@ mod tests {
             3,
             Arc::new(AtomicBool::new(false)),
             args,
+            None,
         );
 
         let ev = events.lock().unwrap();

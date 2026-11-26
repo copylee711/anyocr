@@ -345,7 +345,7 @@ fn recognize_and_report(app: &AppHandle, img: RgbaImage, mode: Mode) {
                 let st = app.state::<SettingsState>();
                 match app
                     .state::<EngineState>()
-                    .task_engines(&st.engine(), &st.online(), Some(1))
+                    .task_engines(&st.engine(), &st.online(), &st.vlm(), Some(1))
                     .and_then(|mut e| {
                         let engine = e.remove(0);
                         engine.recognize(&rgb).map_err(|e| e.to_string())

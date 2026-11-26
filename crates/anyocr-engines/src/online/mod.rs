@@ -407,6 +407,25 @@ pub(crate) fn num(v: &serde_json::Value) -> f32 {
     v.as_f64().unwrap_or_default() as f32
 }
 
+/// 把整页文字按行切开，框沿页面高度均匀排布（没有坐标的引擎用，框只是占位）。
+pub(crate) fn spread_lines(text: &str, width: u32, height: u32) -> Vec<anyocr_core::TextBlock> {
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let n = lines.len().max(1) as f32;
+    let (w, h) = (width as f32, height as f32);
+    lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let y0 = h * i as f32 / n;
+            anyocr_core::TextBlock::from_rect(*l, [0.0, y0, w, y0 + h / n], 1.0)
+        })
+        .collect()
+}
+
 /// 统计耗时并补齐 PageResult 的通用字段。
 pub(crate) fn finish_page(
     info: &EngineInfo,

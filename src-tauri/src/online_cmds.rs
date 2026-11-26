@@ -40,17 +40,29 @@ fn find_preset(id: &str) -> Result<Preset, String> {
         .ok_or_else(|| format!("未知的引擎：{id}"))
 }
 
+/// 该引擎的密钥字段。视觉大模型（`vlm_<服务>`）只有一个 `api_key`。
+fn secret_fields(id: &str) -> Result<Vec<String>, String> {
+    if let Some(provider) = id.strip_prefix("vlm_") {
+        return anyocr_engines::vlm::presets()
+            .iter()
+            .any(|p| p.id == provider)
+            .then(|| vec!["api_key".to_owned()])
+            .ok_or_else(|| format!("未知的视觉大模型服务：{provider}"));
+    }
+    Ok(find_preset(id)?
+        .fields
+        .iter()
+        .filter(|f| f.secret)
+        .map(|f| f.key.to_owned())
+        .collect())
+}
+
 /// 各密钥字段的保存情况：字段 → 末 4 位（未保存为 null）。
 #[tauri::command]
 pub async fn secret_status(engine: String) -> Result<BTreeMap<String, Option<String>>, String> {
-    let preset = find_preset(&engine)?;
+    let fields = secret_fields(&engine)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let fields: Vec<&str> = preset
-            .fields
-            .iter()
-            .filter(|f| f.secret)
-            .map(|f| f.key)
-            .collect();
+        let fields: Vec<&str> = fields.iter().map(String::as_str).collect();
         secrets::status(&engine, &fields)
     })
     .await
@@ -60,8 +72,7 @@ pub async fn secret_status(engine: String) -> Result<BTreeMap<String, Option<Str
 /// 保存或清除（空值）某个密钥字段。
 #[tauri::command]
 pub async fn secret_set(engine: String, field: String, value: String) -> Result<(), String> {
-    let preset = find_preset(&engine)?;
-    if !preset.fields.iter().any(|f| f.secret && f.key == field) {
+    if !secret_fields(&engine)?.contains(&field) {
         return Err(format!("{engine} 没有密钥字段 {field}"));
     }
     tauri::async_runtime::spawn_blocking(move || secrets::set(&engine, &field, &value))

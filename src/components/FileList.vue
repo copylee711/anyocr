@@ -25,7 +25,19 @@ function percent(f: FileItem) {
   return f.status === "running" ? 50 : 0;
 }
 
+/** 复核摘要，如“· 复核修正 3 处”。 */
+function reviewNote(f: FileItem) {
+  if (f.reviewed === undefined && f.reviewSkipped === undefined) return "";
+  let s = ` · ${t("task.reviewFixes", { n: f.reviewFixes ?? 0 })}`;
+  if (f.reviewSkipped) s += ` · ${t("task.reviewSkipped", { n: f.reviewSkipped })}`;
+  return s;
+}
+
 function detail(f: FileItem) {
+  return baseDetail(f) + (f.status === "done" ? reviewNote(f) : "");
+}
+
+function baseDetail(f: FileItem) {
   if (f.status === "failed") return f.error ?? t("task.failed");
   if (props.kind === "doc") {
     if (f.report) {

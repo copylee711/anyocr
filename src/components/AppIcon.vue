@@ -26,6 +26,8 @@ const paths: Record<string, string> = {
   cloud: "M7 18a4 4 0 0 1-.6-7.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9z",
   chip: "M8 4v2M16 4v2M8 18v2M16 18v2M4 8h2M4 16h2M18 8h2M18 16h2M7 6h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zM10 10h4v4h-4z",
   chevron: "M9 6l6 6-6 6",
+  sparkle:
+    "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7z",
 };
 </script>
 

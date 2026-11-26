@@ -10,6 +10,10 @@ export interface FileItem {
   path: string;
   name: string;
   status: FileStatus;
+  /** VLM 复核：已复核页数、采纳的修改数、未应用（超时 / 出错）的页数 */
+  reviewed?: number;
+  reviewFixes?: number;
+  reviewSkipped?: number;
   /** 在线解析阶段（uploading / pending / running / converting / downloading） */
   stage?: string;
   /** 文档：选中页数 / 需识别页数 / 已完成页数 */
@@ -65,6 +69,9 @@ export const useTasks = defineStore("tasks", () => {
         total: undefined,
         toOcr: undefined,
         stage: undefined,
+        reviewed: undefined,
+        reviewFixes: undefined,
+        reviewSkipped: undefined,
         error: undefined,
         outputs: [],
         text: undefined,
@@ -103,6 +110,14 @@ export const useTasks = defineStore("tasks", () => {
         break;
       case "page":
         f.done += 1;
+        break;
+      case "reviewed":
+        if (e.skipped) f.reviewSkipped = (f.reviewSkipped ?? 0) + 1;
+        else {
+          f.reviewed = (f.reviewed ?? 0) + 1;
+          f.reviewFixes = (f.reviewFixes ?? 0) + e.accepted;
+        }
+        if (e.text) f.text = e.text;
         break;
       case "progress":
         f.stage = e.stage;

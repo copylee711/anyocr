@@ -83,6 +83,7 @@
 - DeepSeek：`GET https://api.deepseek.com/models` 返回 `deepseek-flash`、`deepseek-v4-pro`。
   - `deepseek-flash` 支持图片输入（OpenAI 兼容 `image_url`，base64 data URL）；实测一张小图中英混排识别正确，耗时约 1.6 s。
   - `deepseek-v4-pro` 不接受图片。
+  - 2026-11-26：`deepseek-flash` 默认是思考模式，整页图片 + 校对提示要 12~40 s（推理 1800~7500 token）。请求体加 `"thinking": {"type": "disabled"}` 后 1~3 s，校对结果相同；`reasoning_effort: low` 仍要约 10 s。支持 `response_format: json_object`。
 - 统一按 OpenAI Chat Completions 兼容协议接入，可覆盖 DeepSeek、通义千问 VL（DashScope 兼容模式）、硅基流动、智谱、OpenAI、Gemini 兼容端点、本地 Ollama / LM Studio。
 - 注意：环境变量更新后，已启动进程拿到的仍是旧值；开发测试时要从用户级环境变量读取，或重启终端。
 

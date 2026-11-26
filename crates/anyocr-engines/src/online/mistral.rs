@@ -5,7 +5,7 @@
 
 use std::time::Instant;
 
-use anyocr_core::{EngineError, EngineInfo, OcrEngine, PageResult, TextBlock};
+use anyocr_core::{EngineError, EngineInfo, OcrEngine, PageResult};
 use image::RgbImage;
 use serde_json::json;
 
@@ -47,25 +47,6 @@ impl Mistral {
     }
 }
 
-/// 把整页文字按行切开，框沿页面高度均匀排布。
-pub(crate) fn lines_to_blocks(text: &str, width: u32, height: u32) -> Vec<TextBlock> {
-    let lines: Vec<&str> = text
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
-    let n = lines.len().max(1) as f32;
-    let (w, h) = (width as f32, height as f32);
-    lines
-        .iter()
-        .enumerate()
-        .map(|(i, l)| {
-            let y0 = h * i as f32 / n;
-            TextBlock::from_rect(*l, [0.0, y0, w, y0 + h / n], 1.0)
-        })
-        .collect()
-}
-
 impl OcrEngine for Mistral {
     fn info(&self) -> &EngineInfo {
         &self.info
@@ -92,7 +73,7 @@ impl OcrEngine for Mistral {
             .flatten()
             .filter_map(|p| p["markdown"].as_str())
             .collect();
-        let blocks = lines_to_blocks(&md.join("\n"), image.width(), image.height());
+        let blocks = spread_lines(&md.join("\n"), image.width(), image.height());
         Ok(finish_page(&self.info, image, blocks, start))
     }
 }
@@ -103,7 +84,7 @@ mod tests {
 
     #[test]
     fn spreads_lines() {
-        let b = lines_to_blocks("# 标题\n\n正文\n", 100, 200);
+        let b = spread_lines("# 标题\n\n正文\n", 100, 200);
         assert_eq!(b.len(), 2);
         assert_eq!(b[1].bounds(), [0.0, 100.0, 100.0, 200.0]);
     }

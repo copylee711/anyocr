@@ -45,13 +45,15 @@ onMounted(async () => {
 /** 密钥是否齐全 */
 function configured(id: string) {
   const p = byId(id);
-  if (!p) return id === "local";
+  if (!p) return id === "local" || id === "vlm";
   return p.fields.filter((f) => f.secret).every((f) => saved[id]?.[f.key]);
 }
 
 // ---------- 引擎链 ----------
 function nameOf(id: string) {
-  return id === "local" ? t("online.local") : (byId(id)?.info.name ?? id);
+  if (id === "local") return t("online.local");
+  if (id === "vlm") return t("online.vlmEngine");
+  return byId(id)?.info.name ?? id;
 }
 
 function move(i: number, d: -1 | 1) {
@@ -67,7 +69,7 @@ function remove(i: number) {
 }
 
 const addOptions = computed(() =>
-  ["local", ...presets.value.map((p) => p.info.id)]
+  ["local", "vlm", ...presets.value.map((p) => p.info.id)]
     .filter((id) => !online.value.chain.includes(id))
     .map((id) => ({ label: nameOf(id), value: id })),
 );
@@ -123,7 +125,7 @@ const preview = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 80);
   <Group :title="t('online.chain')" :footer="t('online.chainHint')">
     <div v-for="(id, i) in online.chain" :key="id" class="chain-row">
       <span class="badge">{{ i + 1 }}</span>
-      <AppIcon :name="id === 'local' ? 'chip' : 'cloud'" :size="18" class="kind" />
+      <AppIcon :name="id === 'local' ? 'chip' : id === 'vlm' ? 'sparkle' : 'cloud'" :size="18" class="kind" />
       <span class="name">{{ nameOf(id) }}</span>
       <span v-if="!configured(id)" class="tag warn">{{ t("online.noKey") }}</span>
       <span v-else-if="id !== 'local' && byId(id) && !byId(id)!.info.has_boxes" class="tag">{{

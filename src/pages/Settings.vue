@@ -11,6 +11,7 @@ import Group from "../components/ui/Group.vue";
 import Row from "../components/ui/Row.vue";
 import HotkeyInput from "../components/ui/HotkeyInput.vue";
 import OnlineEngines from "../components/OnlineEngines.vue";
+import VlmSettings from "../components/VlmSettings.vue";
 import Segmented from "../components/ui/Segmented.vue";
 import { useSettings } from "../stores/settings";
 
@@ -69,6 +70,8 @@ const models = ["pp-ocrv6-tiny", "pp-ocrv6-small", "pp-ocrv6-medium", "pp-ocrv5-
       </Group>
 
       <OnlineEngines />
+
+      <VlmSettings />
 
       <Group :title="t('settings.hotkeys')" :footer="t('settings.hotkeysHint')">
         <Row

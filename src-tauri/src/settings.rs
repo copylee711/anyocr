@@ -73,6 +73,58 @@ impl Default for OnlineSettings {
     }
 }
 
+/// 视觉大模型设置（密钥在凭据管理器，条目 `vlm_<服务>/api_key`）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct VlmSettings {
+    /// 服务预设 id，如 `deepseek`。
+    pub provider: String,
+    /// 为空时用预设默认模型。
+    pub model: String,
+    /// 为空时用预设地址（自定义 / Ollama 需要填写或修改）。
+    pub base_url: String,
+    pub timeout: u64,
+    pub review: ReviewSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ReviewSettings {
+    /// 文档与批量任务开启并行复核。
+    pub enabled: bool,
+    /// 截图识别后复核，结果就地更新。
+    pub screenshot: bool,
+    pub concurrency: usize,
+    /// OCR 完成后最多再等的秒数。
+    pub grace: f32,
+    /// 大于 0 时只复核含低于该置信度的行的页。
+    pub low_conf: f32,
+}
+
+impl Default for VlmSettings {
+    fn default() -> Self {
+        Self {
+            provider: "deepseek".into(),
+            model: String::new(),
+            base_url: String::new(),
+            timeout: 60,
+            review: ReviewSettings::default(),
+        }
+    }
+}
+
+impl Default for ReviewSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            screenshot: false,
+            concurrency: 4,
+            grace: 10.0,
+            low_conf: 0.0,
+        }
+    }
+}
+
 pub struct SettingsState {
     path: PathBuf,
     value: Mutex<Value>,
@@ -105,6 +157,13 @@ impl SettingsState {
     pub fn online(&self) -> OnlineSettings {
         self.get()
             .get("online")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn vlm(&self) -> VlmSettings {
+        self.get()
+            .get("vlm")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default()
     }

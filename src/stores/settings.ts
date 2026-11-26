@@ -41,6 +41,25 @@ export interface Settings {
     /** 各引擎的非密钥字段（模型、地域等） */
     engines: Record<string, Record<string, string>>;
   };
+  vlm: {
+    provider: string;
+    /** 为空用预设默认模型 */
+    model: string;
+    /** 为空用预设地址 */
+    baseUrl: string;
+    timeout: number;
+    review: {
+      /** 文档与批量图片任务并行复核 */
+      enabled: boolean;
+      /** 截图识别后复核 */
+      screenshot: boolean;
+      concurrency: number;
+      /** OCR 完成后最多再等的秒数 */
+      grace: number;
+      /** 大于 0 时只复核含低于该置信度行的页 */
+      lowConf: number;
+    };
+  };
 }
 
 const defaultOutput = (formats: OutputArgs["formats"]): OutputArgs => ({
@@ -74,6 +93,13 @@ export function defaultSettings(): Settings {
     },
     batch: { parser: "multi_para", recurse: true, output: defaultOutput(["txt"]) },
     online: { chain: ["local"], timeout: 60, concurrency: 4, engines: {} },
+    vlm: {
+      provider: "deepseek",
+      model: "",
+      baseUrl: "",
+      timeout: 60,
+      review: { enabled: false, screenshot: false, concurrency: 4, grace: 10, lowConf: 0 },
+    },
   };
 }
 

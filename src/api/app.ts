@@ -49,6 +49,20 @@ export interface Report {
   ocr_ms: number;
   input_bytes: number;
   output_bytes: number;
+  review?: ReviewStats;
+}
+
+/** VLM 复核统计（与 Rust `ReviewStats` 对应）。 */
+export interface ReviewStats {
+  submitted: number;
+  reviewed: number;
+  timed_out: number;
+  failed: number;
+  accepted: number;
+  rejected: number;
+  review_ms: number;
+  ocr_done_ms: number;
+  tail_wait_ms: number;
 }
 
 export type JobEvent =
@@ -56,6 +70,16 @@ export type JobEvent =
   | { kind: "planned"; job: number; file: number; total: number; toOcr: number }
   | { kind: "page"; job: number; file: number; page: PageReport }
   | { kind: "progress"; job: number; file: number; stage: string; done: number; total: number }
+  | {
+      kind: "reviewed";
+      job: number;
+      file: number;
+      page: number;
+      accepted: number;
+      rejected: number;
+      skipped: string | null;
+      text: string | null;
+    }
   | {
       kind: "file_done";
       job: number;
