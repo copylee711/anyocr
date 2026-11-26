@@ -1,6 +1,6 @@
 {
   "name": "anyocr",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "本地 OCR：识别图片、读取与搜索扫描件 PDF、为扫描件添加可搜索文字层。需要已安装 anyocr 命令行。",
   "author": { "name": "copylee711" },
   "homepage": "https://github.com/copylee711/anyocr",

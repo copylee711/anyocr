@@ -239,6 +239,10 @@ AnyOCR 是一个本地优先的 OCR 桌面应用。它用 Tauri 2 + Vue 3 重写
     - `anyocr` 是 JS 启动器，`@copylee/anyocr-win32-x64` 带 `anyocr.exe` 和 `pdfium.dll`（16 MB）。
     - 在干净目录从 tarball 安装后，`npx anyocr ocr` 和 `npx anyocr mcp`（stdio 干净，握手与调用正常）都已验证。
   - 待用户在 GitHub 仓库设置 Secrets 后才能走正式发布（见 `docs/RELEASE.md`）。
+- [x] **命令行凭据配置**（2026-11-26，用户提出）：
+  - `anyocr auth`：交互式选择引擎，显示获取 Key 的链接；密钥用 rpassword 隐藏输入，存入系统凭据管理器，配置后可测试连接。另有 `list` / `set` / `remove` / `test` 子命令。非交互终端（如智能体的工具调用）直接拒绝，并提示用户自己运行。
+  - 凭据读写移到 `anyocr_engines::credentials`，桌面端与命令行共用同一套条目。实测命令行能直接读到在桌面应用里配置的 PaddleOCR 令牌。取值顺序为环境变量优先，其次凭据管理器。
+  - MCP：新增 `engine_status`（不返回密钥内容）；`ocr_image` / `ocr_pdf` 新增 `engine` 参数。缺少凭据时，错误信息会引导智能体让用户去终端配置，而不是在对话里索要。Skill 写明禁止让用户在对话中粘贴密钥。
 - [ ] M7 ← 下一步
 
 ### 新增里程碑：Agent 集成（用户 2026-11-25 提出，排在 M3 之后，可按需提前）

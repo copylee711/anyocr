@@ -36,7 +36,8 @@ const MAX_PAGES_PER_CALL: usize = 30;
 const INSTRUCTIONS: &str = "AnyOCR：本地 OCR，用于读取图片和扫描件 PDF（没有文字层、无法直接复制文字的 PDF）。\
 推荐流程：长文档先用 search_pdf 按关键词定位页码，再用 ocr_pdf 只读取相关页；\
 若 search_pdf 提示有很多扫描页未建立索引，调用 make_searchable_pdf 在后台识别全书（约 1 秒/页），用 job_status 查看进度，完成后即可全文搜索。\
-所有识别都在本机完成，不上传文件。";
+默认使用本地引擎，识别在本机完成、不上传文件；也可通过 engine 参数使用在线引擎（先用 engine_status 查看配置）。\n在线引擎缺少凭据时，请引导用户在自己的终端运行 
+px -y anyocr auth（隐藏输入，存入系统凭据管理器），切勿让用户把 API Key 粘贴到对话中。";
 
 enum JobState {
     Running {
@@ -54,27 +55,36 @@ enum JobState {
 
 struct State {
     engine_args: EngineArgs,
-    engine: Mutex<Option<Arc<dyn OcrEngine>>>,
+    /// 按引擎规格（如 `local`、`baidu,local`）缓存的引擎实例。
+    engines: Mutex<HashMap<String, Arc<dyn OcrEngine>>>,
     pdf: Mutex<Option<Arc<PdfTool>>>,
     jobs: Mutex<HashMap<u64, JobState>>,
     next_job: AtomicU64,
 }
 
 impl State {
-    fn engine(&self) -> Result<Arc<dyn OcrEngine>, String> {
+    /// 取得引擎。`spec` 为空时用启动参数指定的引擎（默认本地）；否则如 `baidu,local`，逗号分隔为回退链。
+    fn engine(&self, spec: Option<&str>) -> Result<Arc<dyn OcrEngine>, String> {
+        let spec = spec.map(str::trim).filter(|s| !s.is_empty());
+        let key = spec.unwrap_or(&self.engine_args.engine).to_owned();
         let mut g = self
-            .engine
+            .engines
             .lock()
             .map_err(|_| "引擎状态已损坏".to_string())?;
-        if let Some(e) = g.as_ref() {
+        if let Some(e) = g.get(&key) {
             return Ok(Arc::clone(e));
         }
-        let e = self
-            .engine_args
+        let mut args = self.engine_args.clone();
+        args.engine = key.clone();
+        let e = args
             .build_many(1)
-            .map_err(|e| format!("{e:#}"))?
+            .map_err(|e| {
+                format!(
+                    "{e:#}\n（在线引擎缺少凭据时，请让用户在自己的终端运行 `npx -y anyocr auth set <引擎 id>`，不要在对话中索要密钥。可先调用 engine_status 查看配置情况。）"
+                )
+            })?
             .remove(0);
-        *g = Some(Arc::clone(&e));
+        g.insert(key, Arc::clone(&e));
         Ok(e)
     }
 
@@ -107,6 +117,9 @@ pub struct OcrImageArgs {
     /// 排版解析：multi_para（默认，多栏按段落）、multi_line、single_para、single_line、single_code（代码）、none
     #[serde(default)]
     pub parser: Option<String>,
+    /// 可选：引擎 id，逗号分隔为回退链，如 "baidu" 或 "paddle_aistudio,local"。默认本地引擎（离线、免费）。在线引擎需先由用户配置凭据，见 engine_status
+    #[serde(default)]
+    pub engine: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -122,6 +135,9 @@ pub struct OcrPdfArgs {
     /// 文档密码
     #[serde(default)]
     pub password: Option<String>,
+    /// 可选：扫描页使用的引擎，如 "baidu" 或 "paddle_aistudio,local"。默认本地引擎；指定时不使用缓存
+    #[serde(default)]
+    pub engine: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -195,7 +211,7 @@ impl AnyOcrMcp {
         Self {
             state: Arc::new(State {
                 engine_args,
-                engine: Mutex::new(None),
+                engines: Mutex::new(HashMap::new()),
                 pdf: Mutex::new(None),
                 jobs: Mutex::new(HashMap::new()),
                 next_job: AtomicU64::new(1),
@@ -222,7 +238,10 @@ impl AnyOcrMcp {
             let img = image::open(&path)
                 .map_err(|e| format!("无法打开图片：{e}"))?
                 .to_rgb8();
-            let mut page = st.engine()?.recognize(&img).map_err(|e| e.to_string())?;
+            let mut page = st
+                .engine(args.engine.as_deref())?
+                .recognize(&img)
+                .map_err(|e| e.to_string())?;
             page.blocks = parser.run(page.blocks);
             let text = page.text();
             Ok(if text.trim().is_empty() {
@@ -346,6 +365,13 @@ impl AnyOcrMcp {
         ))
     }
 
+    #[tool(
+        description = "查看可用的识别引擎及在线引擎、视觉大模型的凭据是否已配置（不返回任何密钥内容）。用户想用在线引擎时先调用；未配置的引擎请引导用户在自己的终端运行 `npx -y anyocr auth set <id>`，不要在对话中索要 API Key。"
+    )]
+    async fn engine_status(&self) -> Result<CallToolResult, ErrorData> {
+        blocking(|| Ok(crate::auth::status_report())).await
+    }
+
     #[tool(description = "查询 make_searchable_pdf 后台任务的进度或结果。")]
     async fn job_status(
         &self,
@@ -439,18 +465,19 @@ fn read_pages(st: &State, args: &OcrPdfArgs) -> Result<String, String> {
         note = format!("\n（单次最多 {MAX_PAGES_PER_CALL} 页，后续请从第 {next} 页继续）");
     }
 
-    // 需要 OCR 的扫描页：先查缓存
+    // 需要 OCR 的扫描页：先查缓存（指定了其他引擎时重新识别）
+    let custom_engine = args.engine.as_deref().is_some_and(|e| !e.trim().is_empty());
     let mut cache = PageCache::load(&path);
     let need: Vec<usize> = selected
         .iter()
         .copied()
         .filter(|i| {
             texts[*i].chars().filter(|c| !c.is_whitespace()).count() < TEXT_THRESHOLD
-                && !cache.pages.contains_key(i)
+                && (custom_engine || !cache.pages.contains_key(i))
         })
         .collect();
     if !need.is_empty() {
-        let engine = st.engine()?;
+        let engine = st.engine(args.engine.as_deref())?;
         let mut err = None;
         pdf.render_pages(&path, pw, &need, 200.0, 1080, |p| {
             match engine.recognize(&p.image) {
@@ -502,7 +529,7 @@ fn run_searchable(
     args: &MakeSearchableArgs,
 ) -> Result<String, String> {
     let pdf = st.pdf()?;
-    let engine = st.engine()?;
+    let engine = st.engine(None)?;
     let opts = SearchableOptions {
         mode: LayerMode::SkipText,
         pages: args.pages.clone().unwrap_or_default(),

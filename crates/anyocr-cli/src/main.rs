@@ -12,6 +12,7 @@ use anyocr_core::OcrEngine;
 use anyocr_core::tbpu::Parser as Tbpu;
 use std::sync::Arc;
 
+use anyocr_engines::credentials;
 use anyocr_engines::online::{self, mineru};
 use anyocr_engines::vlm::{self, VlmClient, VlmConfig, VlmEngine};
 use anyocr_engines::{ChainEngine, Device, LocalConfig, LocalEngine, LocalModel};
@@ -34,6 +35,11 @@ enum Command {
     Md(MdArgs),
     /// 列出可用的在线引擎及其密钥环境变量
     Engines,
+    /// 交互式配置在线引擎与视觉大模型的凭据（隐藏输入，存入系统凭据管理器，与桌面应用共用）
+    Auth {
+        #[command(subcommand)]
+        cmd: Option<auth::AuthCmd>,
+    },
     /// 以 stdio MCP 服务运行，供 Claude Code、Codex 等智能体调用（识别图片、读取与搜索扫描件 PDF）
     Mcp(McpArgs),
     /// 为扫描件 PDF 添加不可见文字层，生成可搜索 PDF（类似 ocrmypdf）
@@ -83,7 +89,7 @@ struct MdArgs {
 
 fn run_md(args: MdArgs) -> Result<()> {
     let preset = online::mineru_preset();
-    let mut config = online::config_from_env(&preset);
+    let mut config = credentials::online_config(&preset);
     config
         .fields
         .insert("model_version".into(), args.model.clone());
@@ -128,34 +134,35 @@ fn run_md(args: MdArgs) -> Result<()> {
     Ok(())
 }
 
-/// VLM 服务的密钥环境变量：`ANYOCR_VLM_<服务>_API_KEY`，DeepSeek / OpenAI 兼容官方变量名。
-fn vlm_key(provider: &str) -> Option<String> {
-    let official = match provider {
-        "deepseek" => Some("DEEPSEEK_API_KEY"),
-        "openai" => Some("OPENAI_API_KEY"),
-        "gemini" => Some("GEMINI_API_KEY"),
-        "qwen" => Some("DASHSCOPE_API_KEY"),
-        _ => None,
-    };
-    std::env::var(format!("ANYOCR_VLM_{}_API_KEY", provider.to_uppercase()))
-        .ok()
-        .or_else(|| official.and_then(|v| std::env::var(v).ok()))
-}
-
-/// 按服务预设构造 VLM 客户端。
+/// 按服务预设构造 VLM 客户端。密钥、模型、地址都按“环境变量 → 凭据管理器（anyocr auth）”取值。
 pub(crate) fn vlm_client(provider: &str, model: &str, base_url: &str) -> Result<VlmClient> {
     let preset = vlm::presets()
         .into_iter()
         .find(|p| p.id == provider)
         .with_context(|| format!("未知的 VLM 服务 {provider}，可用：deepseek、qwen、siliconflow、zhipu、volcengine、openai、gemini、ollama、custom"))?;
-    let key = vlm_key(provider);
+    let key = credentials::vlm_key(provider);
     if preset.needs_key && key.is_none() {
         anyhow::bail!(
-            "缺少 {provider} 的密钥：请设置环境变量 ANYOCR_VLM_{}_API_KEY",
+            "缺少 {provider} 的 API Key：请在终端运行 `anyocr auth set vlm_{provider}`，或设置环境变量 ANYOCR_VLM_{}_API_KEY",
             provider.to_uppercase()
         );
     }
-    let config = VlmConfig::from_preset(&preset, key, model, base_url);
+    let id = format!("vlm_{provider}");
+    let saved = |field: &str, given: &str| {
+        if given.trim().is_empty() {
+            credentials::lookup(&id, field)
+                .map(|(v, _)| v)
+                .unwrap_or_default()
+        } else {
+            given.to_owned()
+        }
+    };
+    let config = VlmConfig::from_preset(
+        &preset,
+        key,
+        &saved("model", model),
+        &saved("base_url", base_url),
+    );
     Ok(VlmClient::new(config)?)
 }
 
@@ -206,7 +213,7 @@ fn run_engines() {
     }
 }
 
-#[derive(Args)]
+#[derive(Args, Clone)]
 pub(crate) struct EngineArgs {
     /// 引擎，逗号分隔即为 fallback 链，如 `paddle_aistudio,local`。local 为本地引擎；
     /// `vlm_<服务>`（如 vlm_deepseek）为视觉大模型识别（本地检测行框 + VLM 转写）；
@@ -255,7 +262,7 @@ impl EngineArgs {
             let p = presets.iter().find(|p| p.info.id == *id).with_context(|| {
                 format!("未知引擎 {id}，可用：local 以及 `anyocr engines` 列出的 id")
             })?;
-            let e = online::build(id, online::config_from_env(p))
+            let e = online::build(id, credentials::online_config(p))
                 .with_context(|| format!("{id} 初始化失败"))?;
             shared.push(Some(e));
         }
@@ -382,6 +389,7 @@ fn main() -> Result<()> {
         Command::Bench(a) => bench::run(a),
         Command::Md(a) => run_md(a),
         Command::Mcp(a) => mcp::run(a.engine),
+        Command::Auth { cmd } => auth::run(cmd),
         Command::Engines => {
             run_engines();
             Ok(())
@@ -390,6 +398,7 @@ fn main() -> Result<()> {
     }
 }
 
+mod auth;
 mod index;
 mod mcp;
 mod pdf;

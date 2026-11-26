@@ -75,7 +75,22 @@ tool_timeout_sec = 120
 - `anyocr mcp --model pp-ocrv6-medium`：使用更准、更慢的模型。
 - `anyocr mcp --engine paddle_aistudio,local`：先用在线引擎，失败时回退本地。密钥从环境变量读取，变量名见 `anyocr engines`。
 
-## 3. 工具
+## 3. 在线引擎的凭据
+
+默认使用本地引擎，不需要任何配置。要用在线 OCR 或视觉大模型时，在**自己的终端**运行：
+
+```powershell
+npx -y anyocr auth                    # 交互式：选择引擎 → 打开获取 Key 的链接 → 隐藏输入 → 自动测试
+npx -y anyocr auth set baidu          # 直接配置某个引擎
+npx -y anyocr auth list               # 查看配置情况（只显示末 4 位）
+npx -y anyocr auth remove baidu       # 删除
+```
+
+凭据存进系统凭据管理器（Windows 凭据管理器 / macOS 钥匙串），与 AnyOCR 桌面应用共用：在任一处配置，另一处都能直接用。也可以用环境变量临时提供，变量名为 `ANYOCR_<引擎ID>_<字段>`，如 `ANYOCR_BAIDU_API_KEY`；环境变量优先于凭据管理器。
+
+为什么不让智能体代收密钥：不管是直接粘贴到对话框，还是写进文本文件再让智能体读取，密钥都会进入对话上下文，被发往模型服务商并留在会话记录里。MCP 规范也不允许用对话内的输入请求收集密码类信息。`anyocr auth` 只能在交互式终端里运行，智能体从工具里调用会直接报错，并提示用户自己去终端执行。
+
+## 3.1 工具
 
 | 工具                  | 参数                                                                  | 说明                                                                                       |
 | --------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -84,6 +99,9 @@ tool_timeout_sec = 120
 | `search_pdf`          | `path`、`query`、`max_results`、`context`                             | 搜索文字层和已识别的扫描页，忽略空白和大小写；会说明哪些扫描页尚未识别                     |
 | `make_searchable_pdf` | `path`、`output`、`pages`、`password`                                 | 后台识别并生成带文字层的 PDF，立即返回任务编号                                             |
 | `job_status`          | `job_id`                                                              | 查询后台任务进度和预计剩余时间                                                             |
+| `engine_status`       | 无                                                                    | 各引擎凭据是否已配置（不返回密钥内容）                                                     |
+
+`ocr_image` 和 `ocr_pdf` 还有可选参数 `engine`，如 `"baidu"` 或回退链 `"paddle_aistudio,local"`，默认用本地引擎。
 
 扫描页的识别结果缓存在 `%LOCALAPPDATA%\anyocr\pages\`，以文件路径、大小和修改时间为键。同一文件再次读取或搜索时不会重复识别。
 
