@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 设置：识别引擎、外观、存储。在线引擎与视觉大模型在后续里程碑加入。
+// 设置：识别引擎、在线引擎链与密钥、快捷键、外观、存储。
 import { onMounted, ref } from "vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
@@ -10,6 +10,7 @@ import { appInfo, type AppInfo } from "../api/app";
 import Group from "../components/ui/Group.vue";
 import Row from "../components/ui/Row.vue";
 import HotkeyInput from "../components/ui/HotkeyInput.vue";
+import OnlineEngines from "../components/OnlineEngines.vue";
 import Segmented from "../components/ui/Segmented.vue";
 import { useSettings } from "../stores/settings";
 
@@ -67,6 +68,8 @@ const models = ["pp-ocrv6-tiny", "pp-ocrv6-small", "pp-ocrv6-medium", "pp-ocrv5-
         </Row>
       </Group>
 
+      <OnlineEngines />
+
       <Group :title="t('settings.hotkeys')" :footer="t('settings.hotkeysHint')">
         <Row
           v-for="k in ['screenshot', 'paste', 'reScreenshot', 'qrScreenshot'] as const"
@@ -120,12 +123,6 @@ const models = ["pp-ocrv6-tiny", "pp-ocrv6-small", "pp-ocrv6-medium", "pp-ocrv5-
         </Row>
         <Row :label="t('settings.version')">
           <span class="muted">{{ info?.version ?? "—" }}</span>
-        </Row>
-      </Group>
-
-      <Group :title="t('settings.online')" :footer="t('settings.onlineHint')">
-        <Row :label="t('settings.onlineEngines')" :hint="t('common.milestone', { m: 'M5 / M6' })">
-          <span class="muted">{{ t("common.comingSoon") }}</span>
         </Row>
       </Group>
     </div>

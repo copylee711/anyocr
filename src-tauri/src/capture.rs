@@ -342,10 +342,10 @@ fn recognize_and_report(app: &AppHandle, img: RgbaImage, mode: Mode) {
         };
         match mode {
             Mode::Ocr => {
-                let es = app.state::<SettingsState>().engine();
+                let st = app.state::<SettingsState>();
                 match app
                     .state::<EngineState>()
-                    .engines(&es, 1)
+                    .task_engines(&st.engine(), &st.online(), Some(1))
                     .and_then(|mut e| {
                         let engine = e.remove(0);
                         engine.recognize(&rgb).map_err(|e| e.to_string())

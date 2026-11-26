@@ -74,6 +74,14 @@ pub enum JobEvent {
         file: usize,
         page: PageReport,
     },
+    /// 在线文档解析的进度：阶段（uploading / pending / running / converting / downloading）与页数。
+    Progress {
+        job: u64,
+        file: usize,
+        stage: String,
+        done: usize,
+        total: usize,
+    },
     /// 一个文件完成。图片任务的 `text` 为识别文本。
     FileDone {
         job: u64,

@@ -65,7 +65,8 @@
 - 轮询：`GET /api/v2/ocr/jobs/{jobId}`，`data.state` ∈ pending/running/done/failed；完成后 `data.resultUrl.jsonUrl`（JSONL，每行一页的 `result`）和 `markdownUrl`。
 - 限制：单次最多 1000 页 PDF，URL 文件 200 MB，本地上传 50 MB，有每日页数配额（错误码 12001）、限流 12002。
 - 同步接口（`/ocr`、`/layout-parsing`）的 URL 需要在 https://aistudio.baidu.com/paddleocr/task 控制台复制，头为 `Authorization: token <token>`。
-- 实测（2026-11-25）：提交成功（code 0），但一张小图排队超过 10 分钟仍是 `pending`。不适合截图即时识别；批量文档使用时需显示排队状态，并设置超时后 fallback。
+- 实测（2026-11-25）：提交成功（code 0），但一张小图排队超过 10 分钟仍是 `pending`。2026-11-26 再测，单张 3~10 s 就完成，可见排队时间波动很大，必须设置超时后 fallback。
+- 结果 JSONL 每行一页：`result.ocrResults[0].prunedResult` 中的 `rec_texts` / `rec_scores` / `rec_polys`（四点框，像素坐标），以及 `result.dataInfo.width/height`。
 
 ### MinerU（mineru.net 精准解析 API v4）
 
@@ -75,7 +76,7 @@
 - 结果 zip：`full.md`、`*_content_list.json`、`layout.json`（middle.json，含块级 bbox）、`*_model.json`；可选 `extra_formats` docx/html/latex。
 - 限制：单文件 200 MB / 600 页，单批 200 个文件，每日 2000 页高优先级。
 - 定位：版面 / 公式（LaTeX）/ 表格解析，产出 Markdown；块级坐标可用于文字层，但精度为块而非行。
-- 实测：令牌有效（`file-urls/batch` 返回 code 0）。
+- 实测：令牌有效（`file-urls/batch` 返回 code 0）。2026-11-26 用 vlm 模型解析 4 页扫描件 16 s、7 页 33 s。状态依次为 `waiting-file` / `pending` / `running` / `converting` / `done`，`extract_progress` 给出已解析页数。
 
 ## 6. 视觉大模型
 

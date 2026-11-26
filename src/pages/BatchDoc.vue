@@ -6,6 +6,7 @@ import { NButton, NInput, NSelect, NSwitch, useMessage } from "naive-ui";
 import { useI18n } from "vue-i18n";
 
 import { docStart, jobCancel, scanFiles } from "../api/app";
+import { mineruStart } from "../api/online";
 import { PARSERS } from "../api/ocr";
 import AppIcon from "../components/AppIcon.vue";
 import FileList from "../components/FileList.vue";
@@ -38,12 +39,34 @@ async function pick() {
   else if (typeof sel === "string") await add([sel]);
 }
 
+const isMineru = computed(() => cfg.value.engineMode === "mineru");
+
 const canStart = computed(
-  () => task.files.length > 0 && !task.running && (cfg.value.writePdf || cfg.value.output.formats.length > 0),
+  () =>
+    task.files.length > 0 &&
+    !task.running &&
+    (isMineru.value || cfg.value.writePdf || cfg.value.output.formats.length > 0),
 );
+
+async function pickDir() {
+  const dir = await open({ directory: true, multiple: false });
+  if (typeof dir === "string") {
+    cfg.value.output.dir = dir;
+    cfg.value.output.dirType = "custom";
+  }
+}
 
 async function start() {
   try {
+    if (isMineru.value) {
+      const job = await mineruStart({
+        files: task.files.map((f) => f.path),
+        pages: cfg.value.pages,
+        outDir: cfg.value.output.dirType === "custom" ? cfg.value.output.dir : "",
+      });
+      tasks.begin(task, job);
+      return;
+    }
     const job = await docStart({
       files: task.files.map((f) => f.path),
       mode: cfg.value.mode,
@@ -94,65 +117,107 @@ const dpiOptions = [150, 200, 300, 400].map((d) => ({ label: `${d} DPI`, value: 
       <FileList :task="task" kind="doc" :hovering="hovering" @add="pick" @remove="(i) => task.files.splice(i, 1)" />
 
       <aside class="options">
-        <Group :title="t('batchDoc.layer')" :footer="t(`batchDoc.modeHint.${cfg.mode}`)">
-          <Row :label="t('batchDoc.writePdf')" :hint="t('batchDoc.writePdfHint')">
-            <NSwitch v-model:value="cfg.writePdf" :disabled="task.running" />
-          </Row>
-          <Row :label="t('batchDoc.mode')" stacked>
+        <Group :footer="t(`batchDoc.engineModeHint.${cfg.engineMode}`)">
+          <Row :label="t('batchDoc.engineMode')" stacked>
             <Segmented
-              v-model="cfg.mode"
+              v-model="cfg.engineMode"
               :disabled="task.running"
               :options="[
-                { label: t('batchDoc.modes.skip-text'), value: 'skip-text' },
-                { label: t('batchDoc.modes.force'), value: 'force' },
-                { label: t('batchDoc.modes.redo'), value: 'redo' },
+                { label: t('batchDoc.engineModes.pages'), value: 'pages' },
+                { label: t('batchDoc.engineModes.mineru'), value: 'mineru' },
               ]"
             />
           </Row>
         </Group>
-        <Group :title="t('batchDoc.recognition')">
-          <Row :label="t('batchDoc.pages')">
-            <NInput
-              v-model:value="cfg.pages"
-              size="small"
-              :placeholder="t('batchDoc.allPages')"
-              :disabled="task.running"
-              style="width: 140px"
-            />
-          </Row>
-          <Row :label="t('batchDoc.dpi')">
-            <NSelect
-              v-model:value="cfg.dpi"
-              :options="dpiOptions"
-              size="small"
-              :disabled="task.running"
-              style="width: 120px"
-            />
-          </Row>
-          <Row :label="t('screenshot.parser')">
-            <NSelect
-              v-model:value="cfg.parser"
-              :options="parserOptions"
-              size="small"
-              :disabled="task.running"
-              style="width: 168px"
-            />
-          </Row>
-          <Row :label="t('batchDoc.suffix')" :hint="t('batchDoc.suffixHint')">
-            <NInput
-              v-model:value="cfg.pdfSuffix"
-              size="small"
-              :disabled="task.running || !cfg.writePdf"
-              style="width: 120px"
-            />
-          </Row>
-        </Group>
-        <OutputOptions
-          v-model="cfg.output"
-          :title="t('output.title')"
-          :formats-title="t('batchDoc.alsoExport')"
-          :disabled="task.running"
-        />
+
+        <template v-if="isMineru">
+          <Group>
+            <Row :label="t('batchDoc.pages')">
+              <NInput
+                v-model:value="cfg.pages"
+                size="small"
+                :placeholder="t('batchDoc.allPages')"
+                :disabled="task.running"
+                style="width: 140px"
+              />
+            </Row>
+            <Row :label="t('output.location')">
+              <Segmented
+                v-model="cfg.output.dirType"
+                :disabled="task.running"
+                :options="[
+                  { label: t('output.source'), value: 'source' },
+                  { label: t('output.custom'), value: 'custom' },
+                ]"
+              />
+            </Row>
+            <Row v-if="cfg.output.dirType === 'custom'" :label="t('output.folder')" :hint="cfg.output.dir || '—'">
+              <NButton size="small" :disabled="task.running" @click="pickDir">{{ t("output.browse") }}</NButton>
+            </Row>
+          </Group>
+        </template>
+
+        <template v-else>
+          <Group :title="t('batchDoc.layer')" :footer="t(`batchDoc.modeHint.${cfg.mode}`)">
+            <Row :label="t('batchDoc.writePdf')" :hint="t('batchDoc.writePdfHint')">
+              <NSwitch v-model:value="cfg.writePdf" :disabled="task.running" />
+            </Row>
+            <Row :label="t('batchDoc.mode')" stacked>
+              <Segmented
+                v-model="cfg.mode"
+                :disabled="task.running"
+                :options="[
+                  { label: t('batchDoc.modes.skip-text'), value: 'skip-text' },
+                  { label: t('batchDoc.modes.force'), value: 'force' },
+                  { label: t('batchDoc.modes.redo'), value: 'redo' },
+                ]"
+              />
+            </Row>
+          </Group>
+          <Group :title="t('batchDoc.recognition')">
+            <Row :label="t('batchDoc.pages')">
+              <NInput
+                v-model:value="cfg.pages"
+                size="small"
+                :placeholder="t('batchDoc.allPages')"
+                :disabled="task.running"
+                style="width: 140px"
+              />
+            </Row>
+            <Row :label="t('batchDoc.dpi')">
+              <NSelect
+                v-model:value="cfg.dpi"
+                :options="dpiOptions"
+                size="small"
+                :disabled="task.running"
+                style="width: 120px"
+              />
+            </Row>
+            <Row :label="t('screenshot.parser')">
+              <NSelect
+                v-model:value="cfg.parser"
+                :options="parserOptions"
+                size="small"
+                :disabled="task.running"
+                style="width: 168px"
+              />
+            </Row>
+            <Row :label="t('batchDoc.suffix')" :hint="t('batchDoc.suffixHint')">
+              <NInput
+                v-model:value="cfg.pdfSuffix"
+                size="small"
+                :disabled="task.running || !cfg.writePdf"
+                style="width: 120px"
+              />
+            </Row>
+          </Group>
+          <OutputOptions
+            v-model="cfg.output"
+            :title="t('output.title')"
+            :formats-title="t('batchDoc.alsoExport')"
+            :disabled="task.running"
+          />
+        </template>
       </aside>
     </div>
   </section>

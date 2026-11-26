@@ -38,6 +38,11 @@ opt-level = 3
 panic = "abort"
 strip = true
 
-# 推理与图像处理在 debug 下也需要优化，否则开发时慢到无法使用
+# 本仓库代码只保留行号信息，足够看懂 panic 回溯，编译缓存小很多
+[profile.dev]
+debug = "line-tables-only"
+
+# 推理与图像处理在 debug 下也需要优化，否则开发时慢到无法使用；依赖不生成调试信息
 [profile.dev.package."*"]
 opt-level = 3
+debug = false

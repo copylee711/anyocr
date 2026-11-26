@@ -32,6 +32,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-global-shortcut = "2"
 anyocr-qrcode.workspace = true
 xcap = "0.9"
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
 arboard = { version = "3", default-features = false, features = ["image-data"] }
 
 [dev-dependencies]

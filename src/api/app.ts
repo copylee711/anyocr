@@ -55,6 +55,7 @@ export type JobEvent =
   | { kind: "file_start"; job: number; file: number }
   | { kind: "planned"; job: number; file: number; total: number; toOcr: number }
   | { kind: "page"; job: number; file: number; page: PageReport }
+  | { kind: "progress"; job: number; file: number; stage: string; done: number; total: number }
   | {
       kind: "file_done";
       job: number;

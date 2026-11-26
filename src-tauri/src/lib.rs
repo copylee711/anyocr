@@ -5,6 +5,8 @@ mod commands;
 mod engines;
 mod hotkeys;
 mod jobs;
+mod online_cmds;
+mod secrets;
 mod settings;
 
 use std::sync::Arc;
@@ -117,6 +119,11 @@ pub fn run() {
             commands::apply_hotkeys,
             commands::qr_read_file,
             commands::qr_write,
+            online_cmds::online_presets,
+            online_cmds::secret_status,
+            online_cmds::secret_set,
+            online_cmds::online_test,
+            online_cmds::mineru_start,
         ])
         .run(tauri::generate_context!())
         .expect("启动 AnyOCR 失败");

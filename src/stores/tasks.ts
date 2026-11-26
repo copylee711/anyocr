@@ -10,6 +10,8 @@ export interface FileItem {
   path: string;
   name: string;
   status: FileStatus;
+  /** 在线解析阶段（uploading / pending / running / converting / downloading） */
+  stage?: string;
   /** 文档：选中页数 / 需识别页数 / 已完成页数 */
   total?: number;
   toOcr?: number;
@@ -62,6 +64,7 @@ export const useTasks = defineStore("tasks", () => {
         done: 0,
         total: undefined,
         toOcr: undefined,
+        stage: undefined,
         error: undefined,
         outputs: [],
         text: undefined,
@@ -100,6 +103,14 @@ export const useTasks = defineStore("tasks", () => {
         break;
       case "page":
         f.done += 1;
+        break;
+      case "progress":
+        f.stage = e.stage;
+        if (e.total) {
+          f.toOcr = e.total;
+          f.total = e.total;
+          f.done = e.done;
+        }
         break;
       case "file_done":
         f.status = e.ok ? "done" : "failed";

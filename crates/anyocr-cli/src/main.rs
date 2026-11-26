@@ -10,7 +10,10 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use anyocr_core::OcrEngine;
 use anyocr_core::tbpu::Parser as Tbpu;
-use anyocr_engines::{Device, LocalConfig, LocalEngine, LocalModel};
+use std::sync::Arc;
+
+use anyocr_engines::online::{self, mineru};
+use anyocr_engines::{ChainEngine, Device, LocalConfig, LocalEngine, LocalModel};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
@@ -26,6 +29,10 @@ enum Command {
     Ocr(OcrArgs),
     /// 对 PDF 页面做识别测速（渲染 + OCR），输出每页用时与汇总
     Bench(BenchArgs),
+    /// 用 MinerU 在线服务把文档转成 Markdown（公式为 LaTeX），需要 ANYOCR_MINERU_TOKEN
+    Md(MdArgs),
+    /// 列出可用的在线引擎及其密钥环境变量
+    Engines,
     /// 为扫描件 PDF 添加不可见文字层，生成可搜索 PDF（类似 ocrmypdf）
     Pdf(pdf::PdfArgs),
 }
@@ -51,7 +58,102 @@ struct BenchArgs {
 }
 
 #[derive(Args)]
+struct MdArgs {
+    /// 输入文件（PDF、图片、doc/docx、ppt/pptx）
+    input: PathBuf,
+    /// 输出目录，结果放在 <输出目录>/<文件名>/ 下；默认与输入同目录
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+    /// 页码范围，如 1-10,15
+    #[arg(long)]
+    pages: Option<String>,
+    /// 模型：vlm（精度高）/ pipeline（速度快）
+    #[arg(long, default_value = "vlm")]
+    model: String,
+}
+
+fn run_md(args: MdArgs) -> Result<()> {
+    let preset = online::mineru_preset();
+    let mut config = online::config_from_env(&preset);
+    config
+        .fields
+        .insert("model_version".into(), args.model.clone());
+    let out = args
+        .output
+        .clone()
+        .or_else(|| args.input.parent().map(PathBuf::from))
+        .unwrap_or_default();
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let cancel = Arc::clone(&cancel);
+        let _ =
+            ctrlc::set_handler(move || cancel.store(true, std::sync::atomic::Ordering::Relaxed));
+    }
+    let t = Instant::now();
+    let result = mineru::convert(
+        &args.input,
+        &out,
+        &mineru::Options {
+            config,
+            page_ranges: args.pages.clone(),
+            deadline_secs: 0,
+        },
+        &cancel,
+        |p| match p {
+            mineru::Progress::Uploading => eprintln!("上传中…"),
+            mineru::Progress::Running {
+                state,
+                extracted,
+                total,
+            } => {
+                eprintln!(
+                    "{state} {extracted}/{total}（{:.0} s）",
+                    t.elapsed().as_secs_f64()
+                )
+            }
+            mineru::Progress::Downloading => eprintln!("下载结果…"),
+        },
+    )?;
+    eprintln!("完成，用时 {:.1} s", t.elapsed().as_secs_f64());
+    println!("{}", result.markdown.display());
+    Ok(())
+}
+
+fn run_engines() {
+    let mut all = online::presets();
+    all.push(online::mineru_preset());
+    for p in all {
+        println!(
+            "{:<16} {}{}",
+            p.info.id,
+            p.info.name,
+            if p.verified { "" } else { "（未实测）" }
+        );
+        for f in &p.fields {
+            println!(
+                "    ANYOCR_{}_{:<14} {}{}",
+                p.info.id.to_uppercase(),
+                f.key.to_uppercase(),
+                f.label,
+                if f.default.is_empty() {
+                    String::new()
+                } else {
+                    format!("（默认 {}）", f.default)
+                }
+            );
+        }
+        if let Some(u) = &p.info.key_url {
+            println!("    获取 Key：{u}");
+        }
+    }
+}
+
+#[derive(Args)]
 pub(crate) struct EngineArgs {
+    /// 引擎，逗号分隔即为 fallback 链，如 `paddle_aistudio,local`。local 为本地引擎；
+    /// 在线引擎的密钥从环境变量读取（见 `anyocr engines`）
+    #[arg(long, default_value = "local")]
+    pub(crate) engine: String,
     /// 本地模型：pp-ocrv6-tiny / pp-ocrv6-small / pp-ocrv6-medium / pp-ocrv5-mobile / pp-ocrv5-server
     #[arg(long, default_value = "pp-ocrv6-small")]
     pub(crate) model: LocalModel,
@@ -70,7 +172,56 @@ pub(crate) struct EngineArgs {
 }
 
 impl EngineArgs {
-    pub(crate) fn build(&self) -> Result<LocalEngine> {
+    /// 构造 `n` 个可并行使用的引擎。在线引擎在各实例间共享，本地引擎每个实例单独加载。
+    pub(crate) fn build_many(&self, n: usize) -> Result<Vec<Arc<dyn OcrEngine>>> {
+        let ids: Vec<&str> = self
+            .engine
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if ids.is_empty() {
+            anyhow::bail!("--engine 不能为空");
+        }
+        let presets = online::presets();
+        let mut shared: Vec<Option<Arc<dyn OcrEngine>>> = Vec::new();
+        for id in &ids {
+            if *id == "local" {
+                shared.push(None);
+                continue;
+            }
+            let p = presets.iter().find(|p| p.info.id == *id).with_context(|| {
+                format!("未知引擎 {id}，可用：local 以及 `anyocr engines` 列出的 id")
+            })?;
+            let e = online::build(id, online::config_from_env(p))
+                .with_context(|| format!("{id} 初始化失败"))?;
+            shared.push(Some(e));
+        }
+        (0..n.max(1))
+            .map(|_| {
+                let list = shared
+                    .iter()
+                    .map(|s| match s {
+                        Some(e) => Ok(Arc::clone(e)),
+                        None => self
+                            .build_local()
+                            .map(|e| Arc::new(e) as Arc<dyn OcrEngine>),
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(if list.len() == 1 {
+                    list.into_iter().next().unwrap_or_else(|| unreachable!())
+                } else {
+                    Arc::new(ChainEngine::new(list)) as Arc<dyn OcrEngine>
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn uses_local(&self) -> bool {
+        self.engine.split(',').any(|s| s.trim() == "local")
+    }
+
+    fn build_local(&self) -> Result<LocalEngine> {
         let models_dir = self
             .models_dir
             .clone()
@@ -113,7 +264,7 @@ struct OcrArgs {
 }
 
 fn run_ocr(args: OcrArgs) -> Result<()> {
-    let engine = args.engine.build()?;
+    let engine = args.engine.build_many(1)?.remove(0);
     for path in &args.inputs {
         let img = image::open(path)
             .with_context(|| format!("无法打开图片 {}", path.display()))?
@@ -154,6 +305,11 @@ fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Ocr(a) => run_ocr(a),
         Command::Bench(a) => bench::run(a),
+        Command::Md(a) => run_md(a),
+        Command::Engines => {
+            run_engines();
+            Ok(())
+        }
         Command::Pdf(a) => pdf::run(a),
     }
 }
@@ -166,7 +322,7 @@ mod bench {
     use std::time::Instant;
 
     use anyhow::{Context, Result};
-    use anyocr_core::{OcrEngine, PageResult};
+    use anyocr_core::PageResult;
     use anyocr_pdf::{PdfTool, RenderedPage, parse_page_ranges};
 
     use super::BenchArgs;
@@ -179,9 +335,7 @@ mod bench {
             std::fs::create_dir_all(d).context("无法创建输出目录")?;
         }
         let workers = args.workers.max(1);
-        let engines = (0..workers)
-            .map(|_| args.engine.build())
-            .collect::<Result<Vec<_>>>()?;
+        let engines = args.engine.build_many(workers)?;
         eprintln!(
             "文档 {} 页，测试 {} 页，DPI {}，{} 个引擎实例",
             count,

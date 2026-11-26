@@ -34,6 +34,13 @@ function detail(f: FileItem) {
       const skip = r.pages.filter((p) => p.status === "skipped").length;
       return t("task.docDone", { ocr, skip, s: (r.elapsed_ms / 1000).toFixed(1) });
     }
+    if (f.status === "done" && f.elapsedMs !== undefined)
+      return t("task.mdDone", { s: (f.elapsedMs / 1000).toFixed(1) });
+    // 在线解析（MinerU）：显示阶段与页数
+    if (f.stage && f.status === "running") {
+      const stage = t(`batchDoc.stages.${f.stage}`, f.stage);
+      return f.total ? `${stage} ${t("task.pages", { done: f.done, total: f.total })}` : stage;
+    }
     if (f.total !== undefined) return t("task.pages", { done: f.done, total: f.total });
   } else if (f.status === "done") {
     return t("task.imageDone", { n: f.blocks ?? 0, ms: f.elapsedMs ?? 0 });

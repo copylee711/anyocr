@@ -1,6 +1,7 @@
 //! 应用设置：引擎相关字段由 Rust 解析；其余字段（界面、各页默认值等）原样保存，交给前端管理。
 //! 存储位置：Tauri app_config_dir/settings.json。
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -47,6 +48,31 @@ impl EngineSettings {
     }
 }
 
+/// 在线引擎设置（密钥不在这里，见 `secrets`）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OnlineSettings {
+    /// 引擎优先级链，`local` 为本地引擎，其余为在线引擎 id。
+    pub chain: Vec<String>,
+    /// 单页识别超时（秒）。
+    pub timeout: u64,
+    /// 并行请求数（链中没有本地引擎时使用）。
+    pub concurrency: usize,
+    /// 各引擎的非密钥字段，如模型、地域、终结点。
+    pub engines: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+impl Default for OnlineSettings {
+    fn default() -> Self {
+        Self {
+            chain: vec!["local".into()],
+            timeout: 60,
+            concurrency: 4,
+            engines: BTreeMap::new(),
+        }
+    }
+}
+
 pub struct SettingsState {
     path: PathBuf,
     value: Mutex<Value>,
@@ -72,6 +98,13 @@ impl SettingsState {
     pub fn engine(&self) -> EngineSettings {
         self.get()
             .get("engine")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn online(&self) -> OnlineSettings {
+        self.get()
+            .get("online")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default()
     }

@@ -20,6 +20,8 @@ export interface Settings {
     write: { format: string; width: number; height: number; quietZone: number; ecLevel: string };
   };
   doc: {
+    /** pages：逐页识别并写文字层；mineru：用 MinerU 在线转 Markdown */
+    engineMode: "pages" | "mineru";
     mode: LayerMode;
     pages: string;
     dpi: number;
@@ -29,6 +31,16 @@ export interface Settings {
     output: OutputArgs;
   };
   batch: { parser: ParserKey; recurse: boolean; output: OutputArgs };
+  online: {
+    /** 引擎优先级链，`local` 为本地引擎 */
+    chain: string[];
+    /** 单页超时（秒） */
+    timeout: number;
+    /** 纯在线链的并行请求数 */
+    concurrency: number;
+    /** 各引擎的非密钥字段（模型、地域等） */
+    engines: Record<string, Record<string, string>>;
+  };
 }
 
 const defaultOutput = (formats: OutputArgs["formats"]): OutputArgs => ({
@@ -51,6 +63,7 @@ export function defaultSettings(): Settings {
       write: { format: "QR_CODE", width: 256, height: 256, quietZone: 2, ecLevel: "M" },
     },
     doc: {
+      engineMode: "pages",
       mode: "skip-text",
       pages: "",
       dpi: 200,
@@ -60,6 +73,7 @@ export function defaultSettings(): Settings {
       output: defaultOutput([]),
     },
     batch: { parser: "multi_para", recurse: true, output: defaultOutput(["txt"]) },
+    online: { chain: ["local"], timeout: 60, concurrency: 4, engines: {} },
   };
 }
 
@@ -67,6 +81,10 @@ export function defaultSettings(): Settings {
 export function mergeSettings<T>(base: T, saved: unknown): T {
   if (Array.isArray(base)) return (Array.isArray(saved) ? saved : base) as T;
   if (base && typeof base === "object") {
+    // 空对象表示键不固定的字典（如各引擎的字段），整体采用已保存的值
+    if (Object.keys(base).length === 0) {
+      return (saved && typeof saved === "object" && !Array.isArray(saved) ? saved : base) as T;
+    }
     const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
     if (saved && typeof saved === "object" && !Array.isArray(saved)) {
       for (const [k, v] of Object.entries(saved as Record<string, unknown>)) {

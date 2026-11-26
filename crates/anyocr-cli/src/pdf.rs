@@ -66,19 +66,16 @@ pub fn run(args: PdfArgs) -> Result<()> {
     }
     let workers = args
         .workers
-        .unwrap_or(if args.engine.device == Device::Cpu {
+        .unwrap_or(if !args.engine.uses_local() {
+            // 纯在线引擎：瓶颈在网络往返，适当并发
+            4
+        } else if args.engine.device == Device::Cpu {
             2
         } else {
             1
         })
         .max(1);
-    let engines: Vec<Arc<dyn OcrEngine>> = (0..workers)
-        .map(|_| {
-            args.engine
-                .build()
-                .map(|e| Arc::new(e) as Arc<dyn OcrEngine>)
-        })
-        .collect::<Result<_>>()?;
+    let engines: Vec<Arc<dyn OcrEngine>> = args.engine.build_many(workers)?;
     let pdf = PdfTool::new()?;
 
     let cancel = Arc::new(AtomicBool::new(false));

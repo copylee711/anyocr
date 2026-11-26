@@ -62,7 +62,9 @@ pub async fn ocr_image_file(
     parser: String,
 ) -> Result<PageResult, String> {
     let parser: Parser = parser.parse()?;
-    let engine = engines.engines(&settings.engine(), 1)?.remove(0);
+    let engine = engines
+        .task_engines(&settings.engine(), &settings.online(), Some(1))?
+        .remove(0);
     tauri::async_runtime::spawn_blocking(move || {
         let img = image::open(&path)
             .map_err(|e| format!("无法打开图片：{e}"))?
@@ -98,8 +100,11 @@ fn emitter(app: &AppHandle) -> jobs::Emit {
 
 /// 在任务线程中加载引擎（首次可能需要下载模型），失败时以 `JobDone` 事件报告。
 fn load_engines(app: &AppHandle, job: u64) -> Option<Vec<Arc<dyn anyocr_core::OcrEngine>>> {
-    let es = app.state::<SettingsState>().engine();
-    match app.state::<EngineState>().engines(&es, es.worker_count()) {
+    let st = app.state::<SettingsState>();
+    match app
+        .state::<EngineState>()
+        .task_engines(&st.engine(), &st.online(), None)
+    {
         Ok(e) => Some(e),
         Err(e) => {
             let _ = app.emit(

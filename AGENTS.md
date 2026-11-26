@@ -69,7 +69,7 @@ cargo run --release -p anyocr-cli -- bench book.pdf --pages 1-20 --device direct
 
 ## 安全与隐私
 
-- **任何 API Key / Token 都不得写入仓库**，包括测试、示例、日志和快照。应用内的密钥存进系统凭据管理器（`keyring`）；开发测试从环境变量读取：`ANYOCR_PADDLE_TOKEN`、`ANYOCR_MINERU_TOKEN`、`DEEPSEEK_API_KEY`。
+- **任何 API Key / Token 都不得写入仓库**，包括测试、示例、日志和快照。应用内的密钥存进系统凭据管理器（`keyring`）；开发测试和 CLI 从环境变量读取：`ANYOCR_<引擎ID>_<字段>`（如 `ANYOCR_BAIDU_API_KEY`，`anyocr engines` 会列出全部变量名），以及兼容的 `ANYOCR_PADDLE_TOKEN`、`ANYOCR_MINERU_TOKEN`、`DEEPSEEK_API_KEY`。
 - 日志中出现密钥时只保留末 4 位。
 - 用户的本地文件（如课本扫描件）只在本机验收时引用，不得复制进仓库或上传到 CI。
 - 在线引擎默认关闭；用户显式启用前，不得向外部发送图片。
